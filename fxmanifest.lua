@@ -25,6 +25,7 @@ client_scripts {
     'client/tempjob.lua',
     'client/licenses.lua',
     'client/idcard.lua',
+    'client/stateid.lua',
     'client/devcommands.lua',
     'client/vehiclenames.lua',
     'bridge/qb/client/main.lua',

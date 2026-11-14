@@ -13,12 +13,16 @@ CREATE TABLE IF NOT EXISTS `players` (
   `last_updated` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `lastname` VARCHAR(255) GENERATED ALWAYS AS (JSON_VALUE(`charinfo`, '$.lastname')) STORED,
   `fullname` VARCHAR(255) GENERATED ALWAYS AS (CONCAT_WS(' ', JSON_VALUE(`charinfo`, '$.firstname'), JSON_VALUE(`charinfo`, '$.lastname'))) STORED,
+  `job_name` VARCHAR(50) GENERATED ALWAYS AS (JSON_VALUE(`metadata`, '$.job.name')) STORED,
+  `gang_name` VARCHAR(50) GENERATED ALWAYS AS (JSON_VALUE(`metadata`, '$.gang.name')) STORED,
   PRIMARY KEY (`id`),
   UNIQUE KEY `citizenid` (`citizenid`),
   UNIQUE KEY `phone_number` (`phone_number`),
   KEY `license` (`license`),
   KEY `lastname` (`lastname`),
-  KEY `fullname` (`fullname`)
+  KEY `fullname` (`fullname`),
+  KEY `job_name` (`job_name`),
+  KEY `gang_name` (`gang_name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `state_ids` (
@@ -66,13 +70,20 @@ CREATE TABLE IF NOT EXISTS `player_vehicles` (
   `status` JSON DEFAULT NULL,
   `trunk` LONGTEXT DEFAULT NULL,
   `glovebox` LONGTEXT DEFAULT NULL,
+  `vehicle_type` VARCHAR(16) DEFAULT NULL,
+  `class` TINYINT UNSIGNED DEFAULT NULL,
+  `parked_at` DATETIME DEFAULT NULL,
+  `impounded_at` DATETIME DEFAULT NULL,
+  `impound_reason` VARCHAR(255) DEFAULT NULL,
+  `impounded_by` VARCHAR(100) DEFAULT NULL,
+  `hold_until` DATETIME DEFAULT NULL,
   `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `plate` (`plate`),
   KEY `citizenid` (`citizenid`),
   KEY `license` (`license`),
   KEY `vehicle` (`vehicle`),
-  KEY `garage_state` (`garage`, `state`),
-  KEY `state` (`state`),
+  KEY `garage_state_citizenid` (`garage`, `state`, `citizenid`),
+  KEY `state_hold_until` (`state`, `hold_until`),
   CONSTRAINT `player_vehicles_citizenid_fk` FOREIGN KEY (`citizenid`) REFERENCES `players` (`citizenid`) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

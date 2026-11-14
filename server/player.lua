@@ -78,6 +78,12 @@ local function ClearPlayerStateBags(source)
     state:set('LoggedIn', false, true)
 end
 
+---@param source integer
+---@return string?
+local function SessionCitizenId(source)
+    return Player(source).state['cobalt:citizenid']
+end
+
 local jsonColumns <const> = { 'money', 'charinfo', 'position', 'metadata' }
 
 local PLAYER_COLUMNS <const> = ('citizenid, cid, license, name, %s'):format(table.concat(jsonColumns, ', '))
@@ -246,18 +252,8 @@ function Cobalt.Player.GetOfflinePlayerByLicense(license)
     return nil
 end
 
----Reads an offline character's job and gang from cobalt_management, which owns them.
----Online characters get theirs from cobalt_management when they load.
----@param playerData table
-local function attachMembership(playerData)
-    if GetResourceState('cobalt_management') ~= 'started' then return end
-
-    local citizenid <const> = playerData.citizenid
-    local membership <const> = exports.cobalt_management:GetAffiliations({ citizenid })[citizenid]
-
-    playerData.job = membership?.job
-    playerData.gang = membership?.gang
-end
+---@type table<string, true>
+local MEMBERSHIP_KEYS <const> = { job = true, gang = true }
 
 ---@param playerData table
 ---@param template table
@@ -302,7 +298,8 @@ function Cobalt.Player.CheckPlayerData(source, PlayerData)
     if sharedConfig.status.hungerRate == 0 then PlayerData.metadata.hunger = 100 end
     if sharedConfig.status.thirstRate == 0 then PlayerData.metadata.thirst = 100 end
 
-    if Offline then attachMembership(PlayerData) end
+    PlayerData.job = PlayerData.metadata.job
+    PlayerData.gang = PlayerData.metadata.gang
 
     return Cobalt.Player.CreatePlayer(PlayerData, Offline)
 end
@@ -438,15 +435,15 @@ end
 ---@return boolean written
 function Cobalt.Functions.SetMetaData(citizenid, key, value)
     local path <const> = metadataPath(key)
+
+    if type(citizenid) ~= 'string' then return false end
+
     local online <const> = Cobalt.PlayersByCid[citizenid]
 
     if online then
         online.Functions.SetMetaData(key, value)
-
-        return true
+        value = online.PlayerData.metadata[key]
     end
-
-    if type(citizenid) ~= 'string' then return false end
 
     local written <const> = MySQL.update.await(WRITE_METADATA, { path, json.encode(value), citizenid }) == 1
 
@@ -483,6 +480,13 @@ function Player:SetMetaData(meta, val)
         val = val > 100 and 100 or val
     end
     self.PlayerData.metadata[meta] = val
+
+    if MEMBERSHIP_KEYS[meta] then
+        self.PlayerData[meta] = val
+
+        return self:UpdatePlayerData({ 'metadata', meta })
+    end
+
     self:UpdatePlayerData({ 'metadata' })
 end
 
@@ -1083,7 +1087,7 @@ end
 
 ---@param source integer
 local function restoreSession(source)
-    local citizenid <const> = Player(source).state['cobalt:citizenid']
+    local citizenid <const> = SessionCitizenId(source)
 
     if not citizenid or Cobalt.Players[source] then return end
 
@@ -1101,6 +1105,8 @@ end
 
 MySQL.ready(function()
     while GlobalState['cobalt:migrated:cobalt_core'] ~= true do Wait(50) end
+
+    stateIds.publishOnline()
 
     for _, playerId in ipairs(GetPlayers()) do
         restoreSession(tonumber(playerId) --[[@as integer]])

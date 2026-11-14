@@ -271,7 +271,8 @@ Cobalt.Functions.GetVehicleOwnerByPlate = GetVehicleOwnerByPlate
 ---@type string[]
 local VEHICLE_COLUMNS <const> = {
     'id', 'license', 'citizenid', 'vehicle', 'hash', 'mods', 'plate', 'fakeplate', 'garage', 'fuel', 'engine', 'body',
-    'state', 'depotprice', 'drivingdistance', 'status', 'created_at',
+    'state', 'depotprice', 'drivingdistance', 'status', 'vehicle_type', 'class', 'parked_at', 'impounded_at',
+    'impound_reason', 'impounded_by', 'hold_until', 'created_at',
 }
 
 ---@type table<string, true>

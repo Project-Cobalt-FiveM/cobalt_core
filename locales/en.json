@@ -78,6 +78,9 @@
         "carry_unavailable": "They can't be carried right now.",
         "carry_too_far": "They are no longer close enough."
     },
+    "stateid": {
+        "keybind": "Show nearby state IDs"
+    },
     "command": {
         "tp": {
             "help": "Teleport to a player or coordinates (admin only)",

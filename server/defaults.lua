@@ -30,6 +30,7 @@ return {
         walletid = function() return Cobalt.Player.CreateWalletId() end,
         criminalrecord = { hasRecord = false },
         licences = {},
+        secondjobs = {},
     },
     position = config.spawn,
 }

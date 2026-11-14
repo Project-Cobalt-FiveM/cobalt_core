@@ -388,7 +388,7 @@ function CobaltCoreExports:GetOfflinePlayerByCitizenId(citizenid) end
 ---@return table<string, any> values by citizenid
 function CobaltCoreExports:GetMetaData(citizenids, key) end
 
----**Server.** Sets one metadata key on a character: through the loaded player when online, so the client gets it, or in `players.metadata` when offline. False when no character has that citizenid. Errors when `key` isn't an identifier.
+---**Server.** Sets one metadata key on a character and writes it to `players.metadata` straight away. A loaded character also gets it in memory and on its client, and `job` or `gang` also replace `PlayerData.job` or `PlayerData.gang`. False when no character has that citizenid. Errors when `key` isn't an identifier.
 ---@param citizenid string
 ---@param key string letters, digits and underscores, not starting with a digit
 ---@param value any JSON-encodable; nil clears it

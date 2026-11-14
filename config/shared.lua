@@ -35,6 +35,12 @@ return {
         viewerCloseSeconds = 5, -- seconds before a nearby player's card closes on its own
     },
 
+    -- Holding the state ID key brings out a clipboard and shows the state ID over each nearby player's head
+    stateIdPreview = {
+        key = 'J', -- default keyboard key; players can rebind it under Settings > Key Bindings > FiveM
+        radius = 8.0, -- how close a player must be for their state ID to show, in meters; the holder's own always shows
+    },
+
     -- Starter motel room picked after character creation
     starterApartment = {
         enabled = true, -- new characters pick a motel room after creation; needs cobalt_housing

@@ -104,19 +104,22 @@
 ---@field criminalrecord CriminalRecord
 ---@field licences Licences
 ---@field starterApartment? string
+---@field job? Job cobalt_management's job; `players.job_name` indexes its name
+---@field gang? Gang cobalt_management's gang; `players.gang_name` indexes its name
+---@field secondjobs table<string, table> cobalt_management's second jobs, keyed by job name
 ---@field [string] any
 
 ---@class PlayerData
 ---@field source integer
 ---@field citizenid string
 ---@field license string
----@field stateid integer the player's permanent number across all their characters, issued in join order
+---@field stateid integer the player's permanent number across all their characters, issued in join order; also on the player's replicated `cobalt:stateid` state bag
 ---@field name string
 ---@field cid integer
 ---@field charinfo CharInfo
 ---@field money table<MoneyType, integer>
----@field job? Job cobalt_management's job, set once the character loads
----@field gang? Gang cobalt_management's gang, set once the character loads
+---@field job? Job the same table as `metadata.job`; SetMetaData sets both
+---@field gang? Gang the same table as `metadata.gang`; SetMetaData sets both
 ---@field metadata PlayerMetadata
 ---@field position vector3|vector4
 ---@field [string] any
@@ -214,6 +217,7 @@ function Shared.SetDefaultVehicleExtras(vehicle, config) end
 ---@field status { hungerRate: number, thirstRate: number, decayMinutes: number, starvingDamageSeconds: number }
 ---@field licenses table<string, LicenseType>
 ---@field idCard { style: 'american' | 'lebanese', showNearby: boolean, nearbyDistance: number, requireFacing: boolean, autoCloseSeconds: integer, viewerCloseSeconds: integer }
+---@field stateIdPreview { key: string, radius: number }
 ---@field starterApartment { enabled: boolean, shell: string, locations: { id: string, label: string, description: string, door: vector4 }[] }
 
 ---@class ServerConfig
@@ -280,6 +284,7 @@ function PlayerFunctions.GetName() end
 ---@param val? any
 function PlayerFunctions.SetPlayerData(key, val) end
 
+---Sets one metadata key in memory and sends it to the client; the next save writes it. `job` and `gang` also set `PlayerData.job` and `PlayerData.gang`.
 ---@param meta string
 ---@param val any
 function PlayerFunctions.SetMetaData(meta, val) end
@@ -362,6 +367,7 @@ function CorePlayer:GetName() end
 ---@param val? any
 function CorePlayer:SetPlayerData(key, val) end
 
+---Sets one metadata key in memory and sends it to the client; the next save writes it. `job` and `gang` also set `PlayerData.job` and `PlayerData.gang`.
 ---@param meta string
 ---@param val any
 function CorePlayer:SetMetaData(meta, val) end
