@@ -182,14 +182,6 @@ function CobaltCoreExports:GetZoneAtCoords(coords) end
 ---@return integer retval
 function CobaltCoreExports:GetGroundHash(entity) end
 
----**Client.** Fades out, freezes the player (and their vehicle) while the area streams in, then moves them. With no `z` it lands them on the ground under x, y, or on water; when neither turns up within 5 seconds it leaves them 150 meters up and notifies. Yields.
----@param x number
----@param y number
----@param z? number
----@param heading? number
----@return boolean grounded false when `z` was nil and no ground was found
-function CobaltCoreExports:Teleport(x, y, z, heading) end
-
 ---**Client.** Shows a notification through cobalt_interfaces.
 ---@param text string|InterfaceNotifyProps
 ---@param notifyType? NotifyType

@@ -21,9 +21,6 @@ qbShared.reemit({
 }, AddEventHandler)
 
 qbShared.reemit({
-    ['QBCore:Command:TeleportToPlayer'] = 'cobalt_core:Command:TeleportToPlayer',
-    ['QBCore:Command:TeleportToCoords'] = 'cobalt_core:Command:TeleportToCoords',
-    ['QBCore:Command:GoToMarker'] = 'cobalt_core:Command:GoToMarker',
     ['QBCore:Command:DeleteVehicle'] = 'cobalt_core:Command:DeleteVehicle',
 }, RegisterNetEvent)
 

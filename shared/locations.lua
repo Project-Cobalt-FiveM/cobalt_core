@@ -1,4 +1,4 @@
----Teleport destinations for /tp <name> and the admin menu
+---Teleport destinations for the admin menu and /tp <name>, both in cobalt_adminmenu
 CobaltShared.Locations = {
     aircraft_carrier_int = vector4(3081.0042, -4693.6875, 15.2623, 76.8169),
     apt_1_int = vector4(-1452.4602, -540.2056, 74.0443, 31.9129),

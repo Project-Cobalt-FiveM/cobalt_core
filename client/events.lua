@@ -21,30 +21,6 @@ RegisterNetEvent('cobalt_core:Client:PvpHasToggled', function(pvp_state)
     NetworkSetFriendlyFireOption(pvp_state)
 end)
 
-RegisterNetEvent('cobalt_core:Command:TeleportToPlayer', function(coords)
-    local ped <const> = cache.ped
-    SetPedCoordsKeepVehicle(ped, coords.x, coords.y, coords.z)
-end)
-
-RegisterNetEvent('cobalt_core:Command:TeleportToCoords', function(x, y, z, h)
-    Cobalt.Functions.Teleport(x, y, z, h or nil)
-end)
-
-RegisterNetEvent('cobalt_core:Command:GoToMarker', function()
-    local blipMarker <const> = GetFirstBlipInfoId(8)
-
-    if not DoesBlipExist(blipMarker) then
-        Cobalt.Functions.Notify({ description = Lang:t('error.no_waypoint'), type = 'error', duration = 5000 })
-        return
-    end
-
-    local coords <const> = GetBlipInfoIdCoord(blipMarker)
-
-    if Cobalt.Functions.Teleport(coords.x, coords.y) then
-        Cobalt.Functions.Notify({ description = Lang:t('success.teleported_waypoint'), type = 'success', duration = 5000 })
-    end
-end)
-
 ---@param hash integer
 ---@return string
 local function vehicleTypeOf(hash)

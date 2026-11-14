@@ -85,54 +85,6 @@ function Cobalt.Commands.Refresh(source)
     TriggerClientEvent('chat:addSuggestions', src, suggestions)
 end
 
----@param value? string
----@return number?
-local function coordinate(value)
-    local number <const> = value and tonumber((value:gsub(',', '')))
-
-    return number and number + 0.0
-end
-
-Cobalt.Commands.Add('tp', Lang:t('command.tp.help'), { { name = Lang:t('command.tp.params.x.name'), help = Lang:t('command.tp.params.x.help') }, { name = Lang:t('command.tp.params.y.name'), help = Lang:t('command.tp.params.y.help') }, { name = Lang:t('command.tp.params.z.name'), help = Lang:t('command.tp.params.z.help') } }, false, function(source, args)
-    if args[1] and not args[2] and not args[3] then
-        if tonumber(args[1]) then
-            local target <const> = GetPlayerPed(tonumber(args[1]))
-            if target ~= 0 then
-                local coords <const> = GetEntityCoords(target)
-                TriggerClientEvent('cobalt_core:Command:TeleportToPlayer', source, coords)
-            else
-                Cobalt.Functions.Notify(source, { description = Lang:t('error.not_online'), type = 'error' })
-            end
-        else
-            local location <const> = CobaltShared.Locations[args[1]]
-            if location then
-                TriggerClientEvent('cobalt_core:Command:TeleportToCoords', source, location.x, location.y, location.z, location.w)
-            else
-                Cobalt.Functions.Notify(source, { description = Lang:t('error.location_not_exist'), type = 'error' })
-            end
-        end
-    else
-        if not args[1] or not args[2] then
-            Cobalt.Functions.Notify(source, { description = Lang:t('error.missing_args'), type = 'error' })
-            return
-        end
-
-        local x <const>, y <const> = coordinate(args[1]), coordinate(args[2])
-        local z <const>, heading <const> = coordinate(args[3]), coordinate(args[4])
-
-        if not x or not y or (args[3] and not z) or (args[4] and not heading) then
-            Cobalt.Functions.Notify(source, { description = Lang:t('error.wrong_format'), type = 'error' })
-            return
-        end
-
-        TriggerClientEvent('cobalt_core:Command:TeleportToCoords', source, x, y, z, heading)
-    end
-end, 'admin')
-
-Cobalt.Commands.Add('tpm', Lang:t('command.tpm.help'), {}, false, function(source)
-    TriggerClientEvent('cobalt_core:Command:GoToMarker', source)
-end, 'admin')
-
 Cobalt.Commands.Add('togglepvp', Lang:t('command.togglepvp.help'), {}, false, function()
     GlobalState:set('pvp', not GlobalState.pvp, true)
     TriggerClientEvent('cobalt_core:Client:PvpHasToggled', -1, GlobalState.pvp)
