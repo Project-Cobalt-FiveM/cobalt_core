@@ -320,7 +320,7 @@ function CobaltCoreExports:GetLicenseRecords(target) end
 ---@return CardItemMetadata?
 function CobaltCoreExports:CardMetadata(source, key) end
 
----**Server.** The `id_card`, `driver_license` and `gun_license` items' server export. On `usedItem` it shows the card to its holder and, when `idCard.showNearby` is set, to every player within `idCard.nearbyDistance` meters in the holder's routing bucket.
+---**Server.** The `id_card`, `driver_license` and `weapon_license` items' server export. On `usedItem` it shows the card to its holder and, when `idCard.showNearby` is set, to every player within `idCard.nearbyDistance` meters in the holder's routing bucket.
 ---@param event 'usingItem' | 'usedItem'
 ---@param item { name: string }
 ---@param inventory { id: string, source: integer }
