@@ -2,7 +2,7 @@ local sharedConfig <const> = require 'config.shared'
 local settings <const> = sharedConfig.idCard
 
 ---@type table<string, true>
-local CARD_ITEMS <const> = { id_card = true, driver_license = true, weapon_license = true }
+local CARD_ITEMS <const> = { id_card = true, driver_license = true, gun_license = true }
 
 ---@param source integer
 ---@return vector3?

@@ -169,7 +169,7 @@ local function sharedWeapons()
     local weapons <const> = {}
 
     for name, def in pairs(sharedItems()) do
-        if def.category == 'weapons' then weapons[joaat(name)] = { name = name, label = def.label } end
+        if name:sub(1, 7) == 'weapon_' then weapons[joaat(name)] = { name = name, label = def.label } end
     end
 
     return weapons

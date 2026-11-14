@@ -25,7 +25,7 @@ return {
         weapon = { label = 'Weapon' },
     },
 
-    -- Cards shown when a player uses id_card, driver_license or weapon_license
+    -- Cards shown when a player uses id_card, driver_license or gun_license
     idCard = {
         style = 'american', -- 'american' or 'lebanese'
         showNearby = true, -- also show the card to every player near the holder
