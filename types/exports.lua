@@ -382,6 +382,19 @@ function CobaltCoreExports:GetPlayerByCitizenId(citizenid) end
 ---@return CorePlayer?
 function CobaltCoreExports:GetOfflinePlayerByCitizenId(citizenid) end
 
+---**Server.** One metadata key for each character, online ones from memory and the rest from `players` in one query. Characters that don't exist or lack the key are left out. Errors when `key` isn't an identifier.
+---@param citizenids string[]
+---@param key string letters, digits and underscores, not starting with a digit
+---@return table<string, any> values by citizenid
+function CobaltCoreExports:GetMetaData(citizenids, key) end
+
+---**Server.** Sets one metadata key on a character: through the loaded player when online, so the client gets it, or in `players.metadata` when offline. False when no character has that citizenid. Errors when `key` isn't an identifier.
+---@param citizenid string
+---@param key string letters, digits and underscores, not starting with a digit
+---@param value any JSON-encodable; nil clears it
+---@return boolean written
+function CobaltCoreExports:SetMetaData(citizenid, key, value) end
+
 ---**Server.** The online player with that Rockstar license.
 ---@param license string
 ---@return CorePlayer?

@@ -393,6 +393,68 @@ function Cobalt.Functions.GetName(target)
     return name ~= '' and name or nil
 end
 
+local READ_METADATA <const> = 'SELECT citizenid, JSON_EXTRACT(metadata, ?) AS value FROM players WHERE citizenid IN (?)'
+local WRITE_METADATA <const> = "UPDATE players SET metadata = JSON_SET(metadata, ?, JSON_EXTRACT(?, '$')) WHERE citizenid = ?"
+
+---@param key string
+---@return string path
+local function metadataPath(key)
+    if type(key) ~= 'string' or not key:match('^[%a_][%w_]*$') then
+        error(('%s is not a valid metadata key'):format(key), 3)
+    end
+
+    return '$.' .. key
+end
+
+---@param citizenids string[]
+---@param key string
+---@return table<string, any> values
+function Cobalt.Functions.GetMetaData(citizenids, key)
+    local path <const> = metadataPath(key)
+    local values <const>, offline <const> = {}, {}
+
+    for _, citizenid in ipairs(citizenids) do
+        local online <const> = Cobalt.PlayersByCid[citizenid]
+
+        if online then
+            values[citizenid] = online.PlayerData.metadata[key]
+        elseif type(citizenid) == 'string' then
+            offline[#offline + 1] = citizenid
+        end
+    end
+
+    if #offline == 0 then return values end
+
+    for _, row in ipairs(MySQL.query.await(READ_METADATA, { path, offline }) or {}) do
+        if row.value then values[row.citizenid] = json.decode(row.value) end
+    end
+
+    return values
+end
+
+---@param citizenid string
+---@param key string
+---@param value any
+---@return boolean written
+function Cobalt.Functions.SetMetaData(citizenid, key, value)
+    local path <const> = metadataPath(key)
+    local online <const> = Cobalt.PlayersByCid[citizenid]
+
+    if online then
+        online.Functions.SetMetaData(key, value)
+
+        return true
+    end
+
+    if type(citizenid) ~= 'string' then return false end
+
+    local written <const> = MySQL.update.await(WRITE_METADATA, { path, json.encode(value), citizenid }) == 1
+
+    if written then evictOfflineCache(citizenid) end
+
+    return written
+end
+
 ---Sets one PlayerData field, or several at once from a `{ [field] = value }` table, and sends only those.
 ---@param key string | table<string, any>
 ---@param val? any
