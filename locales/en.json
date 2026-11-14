@@ -1,0 +1,136 @@
+{
+    "error": {
+        "not_online": "Player not online",
+        "wrong_format": "Incorrect format",
+        "missing_args": "Enter at least x and y. z is optional.",
+        "missing_args2": "All arguments must be filled out.",
+        "no_access": "No access to this command",
+        "location_not_exist": "Location does not exist",
+        "duplicate_license": "Duplicate Rockstar license found",
+        "no_valid_license": "No valid Rockstar license found",
+        "not_whitelisted": "You're not whitelisted for this server",
+        "server_already_open": "The server is already open",
+        "server_already_closed": "The server is already closed",
+        "no_permission": "You don't have permission for this.",
+        "no_waypoint": "No waypoint set.",
+        "no_ground": "No ground found there, so you were left 150 meters up.",
+        "busy": "You are already doing something.",
+        "ban_table_not_found": "Unable to find the bans table in the database. Please ensure you have imported the SQL file correctly.",
+        "connecting_database_error": "An error occurred while connecting to the database. Ensure that the SQL server is running and that the details in the server.cfg file are correct."
+    },
+    "success": {
+        "server_opened": "The server has been opened",
+        "server_closed": "The server has been closed",
+        "teleported_waypoint": "Teleported to waypoint.",
+        "copied": "%{text} copied"
+    },
+    "info": {
+        "job_info": "Job: %{value} | Grade: %{value2} | Duty: %{value3}",
+        "gang_info": "Gang: %{value} | Grade: %{value2}",
+        "on_duty": "You are now on duty.",
+        "off_duty": "You are now off duty.",
+        "checking_whitelisted": "Checking the whitelist for %{name}.",
+        "checking_license": "Checking the license for %{name}.",
+        "checking_ban": "Checking bans for %{name}.",
+        "join_server": "Welcome, %{name}.",
+        "no_reason": "No reason specified",
+        "exploit_banned": "You have been banned for cheating. Check our Discord for more information: %{discord}",
+        "exploit_dropped": "You have been kicked for exploitation."
+    },
+    "kick": {
+        "message": "\n%{reason}\nMore information on our Discord: %{discord}",
+        "banned": "You have been banned from the server:\n%{reason}\nYour ban expires %{expires}\n",
+        "unknown_callback": "You were kicked for calling a server callback that does not exist.",
+        "callback_flood": "You were kicked for calling server callbacks too often.",
+        "character_deleted": "An admin deleted the character you were playing."
+    },
+    "radial": {
+        "citizen": "Citizen",
+        "copy_id": "Copy ID",
+        "show_id": "Show ID",
+        "share_number": "Share number",
+        "give_cash": "Give cash",
+        "amount": "Amount",
+        "carry": "Carry",
+        "put_down": "Put down",
+        "reload_skin": "Reload skin"
+    },
+    "interact": {
+        "nobody_near": "Nobody is close enough.",
+        "id_copied": "Copied %{citizenid} to the clipboard.",
+        "not_enough_cash": "You do not have that much cash.",
+        "cash_failed": "The cash could not be handed over.",
+        "cash_given": "You gave $%{amount} to %{name}.",
+        "cash_received": "%{name} gave you $%{amount}.",
+        "phones_offline": "Phones are offline.",
+        "no_number": "You do not have a phone number yet.",
+        "number_shared": "You shared your number with %{name}.",
+        "number_received": "%{name} shared their number. Save it in Contacts.",
+        "id_details": "Born %{birthdate}, %{nationality}, ID %{citizenid}",
+        "unknown": "unknown",
+        "id_shown": "You showed your ID to %{name}.",
+        "carry_asked": "You asked to carry %{name}.",
+        "carry_header": "Carry request",
+        "carry_prompt": "%{name} wants to carry you.",
+        "carry_accept": "Accept",
+        "carry_decline": "Decline",
+        "carry_declined": "They did not want to be carried.",
+        "carry_unavailable": "They can't be carried right now.",
+        "carry_too_far": "They are no longer close enough."
+    },
+    "command": {
+        "tp": {
+            "help": "Teleport to a player or coordinates (admin only)",
+            "params": {
+                "x": { "name": "id/x", "help": "ID of player or X position" },
+                "y": { "name": "y", "help": "Y position" },
+                "z": { "name": "z", "help": "Z position, leave empty to land on the ground" }
+            }
+        },
+        "tpm": { "help": "Teleport to your waypoint (admin only)" },
+        "togglepvp": { "help": "Toggle PvP on the server (admin only)" },
+        "addpermission": {
+            "help": "Give a player a permission rank (owner only)",
+            "params": {
+                "id": { "name": "id", "help": "ID of player" },
+                "permission": { "name": "permission", "help": "Permission level" }
+            }
+        },
+        "removepermission": {
+            "help": "Remove a player's permission rank (owner only)",
+            "params": {
+                "id": { "name": "id", "help": "ID of player" },
+                "permission": { "name": "permission", "help": "Permission level" }
+            }
+        },
+        "openserver": { "help": "Open the server for everyone (admin only)" },
+        "closeserver": {
+            "help": "Close the server for people without permissions (admin only)",
+            "params": {
+                "reason": { "name": "reason", "help": "Reason for closing (optional)" }
+            }
+        },
+        "dv": { "help": "Delete your vehicle or the ones beside you (admin only)" },
+        "dvall": { "help": "Delete all vehicles (admin only)" },
+        "dvp": { "help": "Delete all peds (admin only)" },
+        "dvo": { "help": "Delete all objects (admin only)" },
+        "givemoney": {
+            "help": "Give a player money (admin only)",
+            "params": {
+                "id": { "name": "id", "help": "Player ID" },
+                "moneytype": { "name": "moneytype", "help": "Type of money (cash, bank, crypto)" },
+                "amount": { "name": "amount", "help": "Amount of money" }
+            }
+        },
+        "setmoney": {
+            "help": "Set a player's money (admin only)",
+            "params": {
+                "id": { "name": "id", "help": "Player ID" },
+                "moneytype": { "name": "moneytype", "help": "Type of money (cash, bank, crypto)" },
+                "amount": { "name": "amount", "help": "Amount of money" }
+            }
+        },
+        "job": { "help": "Check your job" },
+        "gang": { "help": "Check your gang" }
+    }
+}

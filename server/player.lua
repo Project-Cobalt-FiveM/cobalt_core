@@ -1,0 +1,1046 @@
+local defaults <const> = require 'server.defaults'
+local sharedConfig <const> = require 'config.shared'
+local stateIds <const> = require 'server.stateid'
+
+local _playersStore <const> = {}
+Cobalt.PlayersByCid = {}
+Cobalt.PlayersByLicense = {}
+Cobalt.Player = {}
+
+local OFFLINE_TTL <const> = 60
+local _offlineCache <const> = {}
+
+local function lookupOnline(prefix, value)
+    if prefix == 'license' then
+        return Cobalt.PlayersByLicense[value]
+    elseif prefix == 'citizenid' then
+        return Cobalt.PlayersByCid[value]
+    end
+end
+
+local function lookupOffline(prefix, value)
+    if prefix == 'license' then
+        return Cobalt.Player.GetOfflinePlayerByLicense and Cobalt.Player.GetOfflinePlayerByLicense(value)
+    elseif prefix == 'citizenid' then
+        return Cobalt.Player.GetOfflinePlayer and Cobalt.Player.GetOfflinePlayer(value)
+    end
+end
+
+Cobalt.Players = setmetatable(_playersStore, {
+    __index = function(_, key)
+        if type(key) ~= 'string' then return nil end
+
+        local prefix, value = key:match('^(%w+):(.+)$')
+        if not prefix or not value then return nil end
+
+        local online <const> = lookupOnline(prefix, value)
+        if online then return online end
+
+        local cached <const> = _offlineCache[key]
+        local now <const> = os.time()
+        if cached and now < cached.expires then
+            return cached.player
+        end
+
+        local player <const> = lookupOffline(prefix, value)
+        _offlineCache[key] = player and { player = player, expires = now + OFFLINE_TTL } or nil
+        return player
+    end,
+})
+
+SetInterval(function()
+    local now <const> = os.time()
+
+    for key, cached in pairs(_offlineCache) do
+        if now >= cached.expires then _offlineCache[key] = nil end
+    end
+end, OFFLINE_TTL * 1000)
+
+local function evictOfflineCache(citizenid, license)
+    if citizenid then _offlineCache['citizenid:' .. citizenid] = nil end
+    if license then _offlineCache['license:' .. license] = nil end
+end
+
+local function SyncIdentityStateBags(source, playerData)
+    local state <const> = Player(source).state
+    state:set('cobalt:citizenid', playerData.citizenid, true)
+    local charinfo <const> = playerData.charinfo
+    if charinfo then
+        state:set('cobalt:name', charinfo.firstname .. ' ' .. charinfo.lastname, true)
+    end
+    state:set('LoggedIn', true, true)
+end
+
+local function ClearPlayerStateBags(source)
+    local state <const> = Player(source).state
+    state:set('cobalt:citizenid', nil, true)
+    state:set('cobalt:name', nil, true)
+    state:set('LoggedIn', false, true)
+end
+
+local jsonColumns <const> = { 'money', 'charinfo', 'position', 'metadata' }
+
+local PLAYER_COLUMNS <const> = ('citizenid, cid, license, name, %s'):format(table.concat(jsonColumns, ', '))
+
+---@param row table?
+---@return table?
+local function decodePlayerRow(row)
+    if not row then return nil end
+
+    local playerData <const> = {
+        citizenid = row.citizenid,
+        cid = row.cid,
+        license = row.license,
+        name = row.name,
+    }
+
+    for i = 1, #jsonColumns do
+        local column <const> = jsonColumns[i]
+        playerData[column] = row[column] and json.decode(row[column]) or nil
+    end
+
+    return playerData
+end
+
+---@param column 'citizenid' | 'license'
+---@param value string
+---@return table?
+local function fetchPlayer(column, value)
+    local query <const> = ('SELECT %s FROM players WHERE %s = ? LIMIT 1'):format(PLAYER_COLUMNS, column)
+
+    return decodePlayerRow(MySQL.single.await(query, { value }))
+end
+
+local SAVE_PLAYERS <const> = [[
+    INSERT INTO players (citizenid, cid, license, name, money, charinfo, position, metadata)
+    VALUES %s
+    ON DUPLICATE KEY UPDATE cid = VALUES(cid), license = VALUES(license), name = VALUES(name),
+        money = VALUES(money), charinfo = VALUES(charinfo), position = VALUES(position),
+        metadata = VALUES(metadata)
+]]
+local PLAYER_ROW <const> = '(?, ?, ?, ?, ?, ?, ?, ?)'
+local PLAYER_ROW_FIELDS <const> = 8
+local ROWS_PER_STATEMENT <const> = 250
+local ROWS_PER_FRAME <const> = 50
+local ROW_SEPARATOR <const> = string.char(31)
+
+---@param PlayerData table
+---@param position table
+---@return string[] row
+local function playerRow(PlayerData, position)
+    return {
+        PlayerData.citizenid,
+        tonumber(PlayerData.cid) or 0,
+        PlayerData.license,
+        PlayerData.name,
+        json.encode(PlayerData.money),
+        json.encode(PlayerData.charinfo),
+        json.encode(position),
+        json.encode(PlayerData.metadata),
+    }
+end
+
+---@param rows string[][]
+---@param dispatchOnly? boolean send the query without waiting for it, for when cobalt_core is stopping
+local function writePlayers(rows, dispatchOnly)
+    local params <const> = table.create(#rows * PLAYER_ROW_FIELDS, 0)
+
+    for _, row in ipairs(rows) do
+        table.move(row, 1, PLAYER_ROW_FIELDS, #params + 1, params)
+    end
+
+    local query <const> = SAVE_PLAYERS:format(PLAYER_ROW:rep(#rows, ', '))
+
+    if dispatchOnly then return MySQL.update(query, params) end
+
+    MySQL.update.await(query, params)
+end
+
+---@param PlayerData table
+---@param position table
+local function savePlayer(PlayerData, position)
+    writePlayers({ playerRow(PlayerData, position) })
+end
+
+---@type table<integer, true>
+local loggingIn <const> = {}
+
+---@param source integer
+---@param citizenid string|false
+---@param newData? table
+---@return boolean
+local function loadCharacter(source, citizenid, newData)
+    if not citizenid then
+        Cobalt.Player.CheckPlayerData(source, newData)
+
+        return true
+    end
+
+    local license <const> = Cobalt.Functions.GetIdentifier(source, 'license')
+    local PlayerData <const> = fetchPlayer('citizenid', citizenid)
+
+    if not PlayerData or license ~= PlayerData.license then
+        DropPlayer(source, Lang:t('info.exploit_dropped'))
+
+        return false
+    end
+
+    Cobalt.Player.CheckPlayerData(source, PlayerData)
+
+    return true
+end
+
+---@param source integer
+---@param citizenid string|false
+---@param newData? table
+---@return boolean
+function Cobalt.Player.Login(source, citizenid, newData)
+    if not source or source == '' then
+        lib.print.error('login called without a source')
+
+        return false
+    end
+
+    if loggingIn[source] or Cobalt.Players[source] then return false end
+
+    loggingIn[source] = true
+
+    local ok <const>, loaded <const> = pcall(loadCharacter, source, citizenid, newData)
+
+    loggingIn[source] = nil
+
+    if not ok then error(loaded, 0) end
+
+    return loaded
+end
+
+function Cobalt.Player.GetOfflinePlayer(citizenid)
+    if citizenid then
+        local PlayerData <const> = fetchPlayer('citizenid', citizenid)
+        if PlayerData then
+            return Cobalt.Player.CheckPlayerData(nil, PlayerData)
+        end
+    end
+    return nil
+end
+
+function Cobalt.Player.GetPlayerByLicense(license)
+    if license then
+        local source <const> = Cobalt.Functions.GetSource(license)
+        if source > 0 then
+            return Cobalt.Players[source]
+        else
+            return Cobalt.Player.GetOfflinePlayerByLicense(license)
+        end
+    end
+    return nil
+end
+
+function Cobalt.Player.GetOfflinePlayerByLicense(license)
+    if license then
+        local PlayerData <const> = fetchPlayer('license', license)
+        if PlayerData then
+            return Cobalt.Player.CheckPlayerData(nil, PlayerData)
+        end
+    end
+    return nil
+end
+
+---Reads an offline character's job and gang from cobalt_management, which owns them.
+---Online characters get theirs from cobalt_management when they load.
+---@param playerData table
+local function attachMembership(playerData)
+    if GetResourceState('cobalt_management') ~= 'started' then return end
+
+    local citizenid <const> = playerData.citizenid
+    local membership <const> = exports.cobalt_management:GetAffiliations({ citizenid })[citizenid]
+
+    playerData.job = membership?.job
+    playerData.gang = membership?.gang
+end
+
+---@param playerData table
+---@param template table
+local function applyDefaults(playerData, template)
+    for key, value in pairs(template) do
+        if type(value) == 'table' then
+            playerData[key] = playerData[key] or {}
+            applyDefaults(playerData[key], value)
+        elseif playerData[key] == nil then
+            playerData[key] = type(value) == 'function' and value() or value
+        end
+    end
+end
+
+function Cobalt.Player.CheckPlayerData(source, PlayerData)
+    PlayerData = PlayerData or {}
+    local Offline <const> = not source
+
+    if source then
+        PlayerData.source = source
+        PlayerData.license = PlayerData.license or Cobalt.Functions.GetIdentifier(source, 'license')
+        PlayerData.name = GetPlayerName(source)
+    end
+
+    applyDefaults(PlayerData, defaults)
+
+    if Offline then
+        PlayerData.stateid = stateIds.find(PlayerData.license)
+    else
+        PlayerData.stateid = stateIds.claim(PlayerData.license)
+    end
+
+    for moneytype, amount in pairs(sharedConfig.money.starting) do
+        if moneytype ~= 'bank' and PlayerData.money[moneytype] == nil then
+            PlayerData.money[moneytype] = amount
+        end
+    end
+
+    PlayerData.metadata.cash = PlayerData.metadata.cash or PlayerData.money.cash or 0
+    PlayerData.money.cash = PlayerData.metadata.cash
+
+    if sharedConfig.status.hungerRate == 0 then PlayerData.metadata.hunger = 100 end
+    if sharedConfig.status.thirstRate == 0 then PlayerData.metadata.thirst = 100 end
+
+    if Offline then attachMembership(PlayerData) end
+
+    return Cobalt.Player.CreatePlayer(PlayerData, Offline)
+end
+
+function Cobalt.Player.Logout(source)
+    ClearPlayerStateBags(source)
+    TriggerClientEvent('cobalt_core:Client:OnPlayerUnload', source)
+    TriggerEvent('cobalt_core:Server:OnPlayerUnload', source)
+
+    local Player <const> = Cobalt.Players[source]
+    if Player?.PlayerData then
+        pcall(function() Player.Functions.Save() end)
+
+        if Player.PlayerData.citizenid then
+            Cobalt.PlayersByCid[Player.PlayerData.citizenid] = nil
+        end
+        if Player.PlayerData.license then
+            Cobalt.PlayersByLicense[Player.PlayerData.license] = nil
+        end
+        evictOfflineCache(Player.PlayerData.citizenid, Player.PlayerData.license)
+    end
+    Cobalt.Players[source] = nil
+end
+
+Cobalt.PlayerClass = {}
+local Player <const> = Cobalt.PlayerClass
+Player.__index = Player
+
+---Sends the whole PlayerData to the player's client, or only the listed top-level fields.
+---@param fields? string[]
+function Player:UpdatePlayerData(fields)
+    if self.Offline then return end
+
+    TriggerEvent('cobalt_core:Player:SetPlayerData', self.PlayerData)
+
+    if not fields then
+        return TriggerClientEvent('cobalt_core:Player:SetPlayerData', self.PlayerData.source, self.PlayerData)
+    end
+
+    local changes <const>, cleared <const> = {}, {}
+
+    for i = 1, #fields do
+        local field <const> = fields[i]
+        local value <const> = self.PlayerData[field]
+
+        if value == nil then
+            cleared[#cleared + 1] = field
+        else
+            changes[field] = value
+        end
+    end
+
+    TriggerClientEvent('cobalt_core:Player:UpdatePlayerData', self.PlayerData.source, changes, cleared)
+end
+
+function Player:Notify(text, type, length)
+    Cobalt.Functions.Notify(self.PlayerData.source, text, type, length)
+end
+
+---@param charinfo? { firstname?: string, lastname?: string }
+---@return string?
+local function formatName(charinfo)
+    if not charinfo then return nil end
+
+    local name <const> = ('%s %s'):format(charinfo.firstname or '', charinfo.lastname or ''):match('^%s*(.-)%s*$')
+
+    return name ~= '' and name or nil
+end
+
+---@return string?
+function Player:GetName()
+    return formatName(self.PlayerData.charinfo)
+end
+
+---@param target integer | string server id or citizenid
+---@return string?
+function Cobalt.Functions.GetName(target)
+    local online <const> = type(target) == 'number'
+        and _playersStore[math.tointeger(target)]
+        or Cobalt.PlayersByCid[target]
+
+    if online then return formatName(online.PlayerData.charinfo) end
+
+    if type(target) ~= 'string' then return nil end
+
+    local name <const> = MySQL.scalar.await('SELECT fullname FROM players WHERE citizenid = ? LIMIT 1', { target })
+
+    return name ~= '' and name or nil
+end
+
+---Sets one PlayerData field, or several at once from a `{ [field] = value }` table, and sends only those.
+---@param key string | table<string, any>
+---@param val? any
+function Player:SetPlayerData(key, val)
+    if type(key) == 'string' then
+        self.PlayerData[key] = val
+
+        return self:UpdatePlayerData({ key })
+    end
+
+    if type(key) ~= 'table' then return end
+
+    local fields <const> = {}
+
+    for field, value in pairs(key) do
+        self.PlayerData[field] = value
+        fields[#fields + 1] = field
+    end
+
+    self:UpdatePlayerData(fields)
+end
+
+function Player:SetMetaData(meta, val)
+    if not meta or type(meta) ~= 'string' then return end
+    if meta == 'hunger' or meta == 'thirst' then
+        val = val > 100 and 100 or val
+    end
+    self.PlayerData.metadata[meta] = val
+    self:UpdatePlayerData({ 'metadata' })
+end
+
+function Player:GetMetaData(meta)
+    if not meta or type(meta) ~= 'string' then return end
+    return self.PlayerData.metadata[meta]
+end
+
+function Player:AddRep(rep, amount)
+    if not rep or not amount then return end
+    local addAmount <const> = tonumber(amount)
+    local currentRep <const> = self.PlayerData.metadata.rep[rep] or 0
+    self.PlayerData.metadata.rep[rep] = currentRep + addAmount
+    self:UpdatePlayerData({ 'metadata' })
+end
+
+function Player:RemoveRep(rep, amount)
+    if not rep or not amount then return end
+    local removeAmount <const> = tonumber(amount)
+    local currentRep <const> = self.PlayerData.metadata.rep[rep] or 0
+    if currentRep - removeAmount < 0 then
+        self.PlayerData.metadata.rep[rep] = 0
+    else
+        self.PlayerData.metadata.rep[rep] = currentRep - removeAmount
+    end
+    self:UpdatePlayerData({ 'metadata' })
+end
+
+function Player:GetRep(rep)
+    if not rep then return end
+    return self.PlayerData.metadata.rep[rep] or 0
+end
+
+---@param self table
+---@return integer
+local function bankBalance(self)
+    return exports.cobalt_banking:GetBalance(self.PlayerData.citizenid)
+end
+
+---@param self table
+---@param op 'add' | 'remove' | 'set'
+---@param amount integer
+---@param reason string
+---@return boolean ok
+---@return integer|string balanceOrError
+local function writeBank(self, op, amount, reason)
+    local banking <const> = exports.cobalt_banking
+    local citizenid <const> = self.PlayerData.citizenid
+    local details <const> = { note = reason, initiator = citizenid }
+
+    if op == 'add' then return banking:Deposit(citizenid, amount, details) end
+    if op == 'remove' then return banking:Withdraw(citizenid, amount, details) end
+
+    return banking:AdjustBalance(citizenid, amount - bankBalance(self), details)
+end
+
+---@param self table
+---@param moneytype string
+---@return integer
+local function walletBalance(self, moneytype)
+    if moneytype == 'cash' then return self.PlayerData.metadata.cash or 0 end
+    return self.PlayerData.money[moneytype] or 0
+end
+
+---@param self table
+---@param moneytype string
+---@param amount integer
+local function setWallet(self, moneytype, amount)
+    if moneytype == 'cash' then self.PlayerData.metadata.cash = amount end
+    self.PlayerData.money[moneytype] = amount
+end
+
+local WRITE_CASH <const> = [[
+    UPDATE players SET money = JSON_SET(money, '$.cash', ?), metadata = JSON_SET(metadata, '$.cash', ?)
+    WHERE citizenid = ?
+]]
+local STORED_CASH <const> = "COALESCE(CAST(JSON_VALUE(metadata, '$.cash') AS SIGNED), CAST(JSON_VALUE(money, '$.cash') AS SIGNED), 0)"
+local SHIFT_CASH <const> = ([[
+    UPDATE players
+    SET metadata = JSON_SET(metadata, '$.cash', %s + ?),
+        money = JSON_SET(money, '$.cash', CAST(JSON_VALUE(metadata, '$.cash') AS SIGNED))
+    WHERE citizenid = ?
+]]):format(STORED_CASH)
+local DEBIT_CASH <const> = ('%s    AND %s >= ?'):format(SHIFT_CASH, STORED_CASH)
+local WRITE_WALLET <const> = 'UPDATE players SET money = JSON_SET(money, ?, ?) WHERE citizenid = ?'
+
+---Writes one wallet balance to its row, in the same places the full save writes it.
+---@param citizenid string
+---@param moneytype string
+---@param amount number
+---@return boolean written
+local function persistWallet(citizenid, moneytype, amount)
+    if moneytype == 'cash' then
+        return MySQL.update.await(WRITE_CASH, { amount, amount, citizenid }) == 1
+    end
+
+    return MySQL.update.await(WRITE_WALLET, { ('$."%s"'):format(moneytype), amount, citizenid }) == 1
+end
+
+---Moves `amount` cash between two rows in one transaction, which rolls back when the giver's row holds less.
+---@param fromCid string
+---@param toCid string
+---@param amount integer
+---@return boolean written
+local function persistCashTransfer(fromCid, toCid, amount)
+    return MySQL.startTransaction(function(query)
+        if query(DEBIT_CASH, { -amount, fromCid, amount }).affectedRows ~= 1 then return false end
+
+        return query(SHIFT_CASH, { amount, toCid }).affectedRows == 1
+    end) == true
+end
+
+---@param self table
+---@param op 'add' | 'remove' | 'set'
+---@param moneytype string
+---@param amount integer
+---@param reason string
+---@return boolean
+local function writeMoney(self, op, moneytype, amount, reason)
+    if moneytype == 'bank' then
+        local ok <const>, balance <const> = writeBank(self, op, amount, reason)
+
+        if not ok then return false end
+
+        self.PlayerData.money.bank = balance
+        return true
+    end
+
+    local before <const> = walletBalance(self, moneytype)
+    local after = amount
+
+    if op == 'add' then
+        after = before + amount
+    elseif op == 'remove' then
+        after = before - amount
+    end
+
+    if after < 0 then return false end
+
+    setWallet(self, moneytype, after)
+
+    if after == before then return true end
+
+    local saved <const>, written <const> = pcall(persistWallet, self.PlayerData.citizenid, moneytype, after)
+
+    if saved and written then return true end
+
+    setWallet(self, moneytype, walletBalance(self, moneytype) - (after - before))
+    return false
+end
+
+---@param self table
+---@param op 'add' | 'remove' | 'set'
+---@param moneytype string
+---@param amount number
+---@param reason string
+local function announceMoneyChange(self, op, moneytype, amount, reason)
+    if self.Offline then return end
+
+    local source <const> = self.PlayerData.source
+
+    self:UpdatePlayerData(moneytype == 'cash' and { 'money', 'metadata' } or { 'money' })
+
+    TriggerClientEvent('cobalt_core:Client:OnMoneyChange', source, moneytype, amount, op, reason)
+    TriggerEvent('cobalt_core:Server:OnMoneyChange', source, moneytype, amount, op, reason)
+end
+
+---@param self table
+---@param op 'add' | 'remove' | 'set'
+---@param moneytype string
+---@param amount number?
+---@param reason string?
+---@return boolean
+local function changeMoney(self, op, moneytype, amount, reason)
+    moneytype = moneytype:lower()
+    amount = tonumber(amount)
+    if not amount or amount ~= amount or amount < 0 or amount == math.huge then return false end
+
+    reason = reason or 'unknown'
+
+    if not writeMoney(self, op, moneytype, amount, reason) then return false end
+
+    announceMoneyChange(self, op, moneytype, amount, reason)
+
+    return true
+end
+
+---Moves cash from one loaded character to another, writing both rows in one transaction.
+---@param from CorePlayer
+---@param to CorePlayer
+---@param amount integer
+---@param reason string
+---@return boolean moved
+function Cobalt.Player.TransferCash(from, to, amount, reason)
+    local fromBefore <const> = walletBalance(from, 'cash')
+    local toBefore <const> = walletBalance(to, 'cash')
+
+    if amount < 1 or fromBefore < amount then return false end
+
+    setWallet(from, 'cash', fromBefore - amount)
+    setWallet(to, 'cash', toBefore + amount)
+
+    if not persistCashTransfer(from.PlayerData.citizenid, to.PlayerData.citizenid, amount) then
+        setWallet(from, 'cash', walletBalance(from, 'cash') + amount)
+        setWallet(to, 'cash', walletBalance(to, 'cash') - amount)
+
+        return false
+    end
+
+    announceMoneyChange(from, 'remove', 'cash', amount, reason)
+    announceMoneyChange(to, 'add', 'cash', amount, reason)
+
+    return true
+end
+
+function Player:AddMoney(moneytype, amount, reason)
+    return changeMoney(self, 'add', moneytype, amount, reason)
+end
+
+function Player:RemoveMoney(moneytype, amount, reason)
+    return changeMoney(self, 'remove', moneytype, amount, reason)
+end
+
+function Player:SetMoney(moneytype, amount, reason)
+    return changeMoney(self, 'set', moneytype, amount, reason)
+end
+
+function Player:GetMoney(moneytype)
+    if not moneytype then return false end
+
+    moneytype = moneytype:lower()
+    if moneytype == 'bank' then return bankBalance(self) end
+
+    return walletBalance(self, moneytype)
+end
+
+---@param balance integer
+function Player:SyncBank(balance)
+    self.PlayerData.money.bank = balance
+    if self.Offline then return end
+
+    self:UpdatePlayerData({ 'money' })
+    TriggerClientEvent('cobalt_core:Client:OnMoneyChange', self.PlayerData.source, 'bank', balance, 'set', 'sync')
+end
+
+function Player:Save()
+    if self.Offline then
+        Cobalt.Player.SaveOffline(self.PlayerData)
+    else
+        Cobalt.Player.Save(self.PlayerData.source)
+    end
+end
+
+function Player:Logout()
+    if self.Offline then return end
+    Cobalt.Player.Logout(self.PlayerData.source)
+end
+
+function Player:AddMethod(methodName, handler)
+    if type(methodName) ~= 'string' or methodName == '' then
+        return false, 'methodName must be a non-empty string'
+    end
+    if type(handler) ~= 'function' then
+        return false, 'handler must be a function'
+    end
+    if Player[methodName] then
+        return false, ('method %q already exists on Player class'):format(methodName)
+    end
+    Player[methodName] = handler
+    return true
+end
+
+function Player:AddField(fieldName, value)
+    if type(fieldName) ~= 'string' or fieldName == '' then
+        return false, 'fieldName must be a non-empty string'
+    end
+    if type(value) == 'function' then
+        return false, 'value must not be a function (use AddMethod)'
+    end
+    if Player[fieldName] then
+        return false, ('field %q already exists on Player class'):format(fieldName)
+    end
+    Player[fieldName] = value
+    return true
+end
+
+function Cobalt.Player.CreatePlayer(PlayerData, Offline)
+    local self <const> = setmetatable({
+        PlayerData = PlayerData,
+        Offline    = Offline,
+    }, Player)
+
+    self.Functions = {}
+    for methodName, fn in pairs(Player) do
+        if type(fn) == 'function' then
+            self.Functions[methodName] = function(...) return fn(self, ...) end
+        end
+    end
+
+    self.Functions.AddMethod = function(methodName, handler)
+        if type(methodName) == 'string' and type(handler) == 'function' then
+            self.Functions[methodName] = function(...) return handler(self, ...) end
+        end
+    end
+
+    self.Functions.AddField = function(fieldName, data)
+        if type(fieldName) == 'string' then
+            rawset(self, fieldName, data)
+        end
+    end
+
+    if self.Offline then
+        return self
+    else
+        Cobalt.Players[self.PlayerData.source] = self
+        if self.PlayerData.citizenid then
+            Cobalt.PlayersByCid[self.PlayerData.citizenid] = self
+        end
+        if self.PlayerData.license then
+            Cobalt.PlayersByLicense[self.PlayerData.license] = self
+        end
+        evictOfflineCache(self.PlayerData.citizenid, self.PlayerData.license)
+
+        Cobalt.Player.Save(self.PlayerData.source)
+
+        SyncIdentityStateBags(self.PlayerData.source, self.PlayerData)
+
+        TriggerEvent('cobalt_core:Server:PlayerLoaded', self)
+        self.Functions.UpdatePlayerData()
+        TriggerClientEvent('cobalt_core:Client:OnPlayerLoaded', self.PlayerData.source)
+    end
+end
+
+function Cobalt.Functions.AddPlayerMethod(ids, methodName, handler)
+    local idType <const> = type(ids)
+    if idType == 'number' then
+        if ids == -1 then
+            return Cobalt.PlayerClass:AddMethod(methodName, handler)
+        else
+            if not Cobalt.Players[ids] then return end
+
+            Cobalt.Players[ids].Functions.AddMethod(methodName, handler)
+        end
+    elseif idType == 'table' and table.type(ids) == 'array' then
+        for i = 1, #ids do
+            Cobalt.Functions.AddPlayerMethod(ids[i], methodName, handler)
+        end
+    end
+end
+
+function Cobalt.Functions.AddPlayerField(ids, fieldName, data)
+    local idType <const> = type(ids)
+    if idType == 'number' then
+        if ids == -1 then
+            return Cobalt.PlayerClass:AddField(fieldName, data)
+        else
+            if not Cobalt.Players[ids] then return end
+
+            Cobalt.Players[ids].Functions.AddField(fieldName, data)
+        end
+    elseif idType == 'table' and table.type(ids) == 'array' then
+        for i = 1, #ids do
+            Cobalt.Functions.AddPlayerField(ids[i], fieldName, data)
+        end
+    end
+end
+
+
+---@param Player table
+---@return string[] row
+local function onlineRow(Player)
+    local PlayerData <const> = Player.PlayerData
+    local ped <const> = GetPlayerPed(PlayerData.source)
+
+    if ped ~= 0 and DoesEntityExist(ped) then
+        PlayerData.metadata.armor = GetPedArmour(ped)
+
+        local hp <const> = GetEntityHealth(ped)
+
+        if hp and hp > 0 then PlayerData.metadata.health = math.min(hp, GetEntityMaxHealth(ped)) end
+
+        local coords <const> = GetEntityCoords(ped)
+
+        if #coords > 1.0 then Player.lastPosition = { x = coords.x, y = coords.y, z = coords.z } end
+    end
+
+    return playerRow(PlayerData, Player.lastPosition or PlayerData.position)
+end
+
+---@param row string[]
+---@return string
+local function rowKey(row)
+    return table.concat(row, ROW_SEPARATOR)
+end
+
+---@param source integer
+function Cobalt.Player.Save(source)
+    local Player <const> = Cobalt.Players[source]
+
+    if not Player?.PlayerData then
+        return lib.print.error('save called without player data')
+    end
+
+    if Player.deleted then return end
+
+    local row <const> = onlineRow(Player)
+
+    writePlayers({ row })
+    Player.savedRow = rowKey(row)
+end
+
+---@param batch { Player: table, row: string[] }[]
+---@param dispatchOnly? boolean
+local function writeBatch(batch, dispatchOnly)
+    local live <const> = table.create(#batch, 0)
+
+    for _, entry in ipairs(batch) do
+        local Player <const> = entry.Player
+
+        if not Player.deleted and Cobalt.PlayersByCid[Player.PlayerData.citizenid] == Player then
+            live[#live + 1] = entry
+        end
+    end
+
+    if #live == 0 then return end
+
+    local rows <const> = table.create(#live, 0)
+
+    for i, entry in ipairs(live) do rows[i] = entry.row end
+
+    local ok <const>, err <const> = pcall(writePlayers, rows, dispatchOnly)
+
+    if not ok then
+        return lib.print.error(('saving %d players failed: %s'):format(#live, err))
+    end
+
+    for _, entry in ipairs(live) do entry.Player.savedRow = rowKey(entry.row) end
+end
+
+local isSavingAll = false
+
+---Saves every online player whose saved row changed since their last save, a few hundred rows per statement.
+---@param dispatchOnly? boolean send without waiting or yielding, for when cobalt_core is stopping
+function Cobalt.Player.SaveAll(dispatchOnly)
+    if isSavingAll and not dispatchOnly then return end
+
+    isSavingAll = true
+
+    local online <const> = {}
+
+    for _, Player in pairs(Cobalt.Players) do online[#online + 1] = Player end
+
+    local batch = {}
+
+    for i, Player in ipairs(online) do
+        if Cobalt.Players[Player.PlayerData.source] == Player and not Player.deleted then
+            local ok <const>, row <const> = pcall(onlineRow, Player)
+
+            if not ok then
+                lib.print.error(('save failed for %s: %s'):format(Player.PlayerData.source, row))
+            elseif rowKey(row) ~= Player.savedRow then
+                batch[#batch + 1] = { Player = Player, row = row }
+            end
+        end
+
+        if #batch == ROWS_PER_STATEMENT then
+            writeBatch(batch, dispatchOnly)
+            batch = {}
+        end
+
+        if not dispatchOnly and i % ROWS_PER_FRAME == 0 then Wait(0) end
+    end
+
+    if #batch > 0 then writeBatch(batch, dispatchOnly) end
+
+    isSavingAll = false
+end
+
+function Cobalt.Player.SaveOffline(PlayerData)
+    if PlayerData then
+        savePlayer(PlayerData, PlayerData.position)
+    else
+        lib.print.error('offline save called without player data')
+    end
+end
+
+local DELETE_CHARACTER <const> = {
+    'DELETE c FROM player_outfit_codes c JOIN player_outfits o ON o.id = c.outfitid WHERE o.citizenid = ?',
+    'DELETE FROM player_outfits WHERE citizenid = ?',
+    'DELETE FROM playerskins WHERE citizenid = ?',
+    'DELETE FROM players WHERE citizenid = ?',
+}
+
+---@param citizenid string
+---@return CorePlayer?
+local function detachCharacter(citizenid)
+    local Player <const> = Cobalt.PlayersByCid[citizenid]
+
+    if not Player then return end
+
+    Player.deleted = true
+    Cobalt.PlayersByCid[citizenid] = nil
+
+    if Cobalt.PlayersByLicense[Player.PlayerData.license] == Player then
+        Cobalt.PlayersByLicense[Player.PlayerData.license] = nil
+    end
+
+    return Player
+end
+
+---@param citizenid string
+---@param license string
+---@param reason 'voluntary' | 'admin'
+---@return boolean deleted
+local function cascadeDelete(citizenid, license, reason)
+    evictOfflineCache(citizenid, license)
+    TriggerEvent('cobalt_core:characterDeleting', citizenid, reason)
+
+    local queries <const> = {}
+    for i = 1, #DELETE_CHARACTER do
+        queries[i] = { query = DELETE_CHARACTER[i], values = { citizenid } }
+    end
+
+    if not MySQL.transaction.await(queries) then
+        exports.cobalt_core:Log(
+            'core.character_delete_failed',
+            ('Deleting character %s rolled back'):format(citizenid),
+            { citizenid = citizenid, reason = reason },
+            'error'
+        )
+
+        return false
+    end
+
+    TriggerEvent('cobalt_core:characterDeleted', citizenid, reason)
+
+    return true
+end
+
+---@param source integer
+---@param citizenid string
+---@return boolean deleted
+function Cobalt.Player.DeleteCharacter(source, citizenid)
+    local license <const> = Cobalt.Functions.GetIdentifier(source, 'license')
+    local charLicense <const> = MySQL.scalar.await('SELECT license FROM players WHERE citizenid = ?', { citizenid })
+
+    if not charLicense or license ~= charLicense then
+        DropPlayer(source, Lang:t('info.exploit_dropped'))
+
+        return false
+    end
+
+    if Cobalt.PlayersByCid[citizenid] then return false end
+
+    return cascadeDelete(citizenid, charLicense, 'voluntary')
+end
+
+---@param citizenid string
+---@return boolean deleted
+function Cobalt.Player.ForceDeleteCharacter(citizenid)
+    local license <const> = MySQL.scalar.await('SELECT license FROM players WHERE citizenid = ?', { citizenid })
+
+    if not license then return false end
+
+    local target <const> = detachCharacter(citizenid)
+
+    if target then
+        DropPlayer(target.PlayerData.source, Lang:t('kick.character_deleted'))
+    end
+
+    return cascadeDelete(citizenid, license, 'admin')
+end
+
+
+function Cobalt.Player.CreateCitizenId()
+    local CitizenId <const> = tostring(Cobalt.Shared.RandomStr(3) .. Cobalt.Shared.RandomInt(5)):upper()
+    local exists <const> = MySQL.scalar.await('SELECT 1 FROM players WHERE citizenid = ?', { CitizenId })
+    if not exists then return CitizenId end
+    return Cobalt.Player.CreateCitizenId()
+end
+
+
+function Cobalt.Player.CreateFingerId()
+    local FingerId <const> = tostring(Cobalt.Shared.RandomStr(2) .. Cobalt.Shared.RandomInt(3) .. Cobalt.Shared.RandomStr(1) .. Cobalt.Shared.RandomInt(2) .. Cobalt.Shared.RandomStr(3) .. Cobalt.Shared.RandomInt(4))
+    local query <const> = "SELECT 1 FROM players WHERE JSON_VALUE(metadata, '$.fingerprint') = ? LIMIT 1"
+    local exists <const> = MySQL.scalar.await(query, { FingerId })
+    if not exists then return FingerId end
+    return Cobalt.Player.CreateFingerId()
+end
+
+function Cobalt.Player.CreateWalletId()
+    local WalletId <const> = 'Cobalt-' .. math.random(11111111, 99999999)
+    local query <const> = "SELECT 1 FROM players WHERE JSON_VALUE(metadata, '$.walletid') = ? LIMIT 1"
+    local exists <const> = MySQL.scalar.await(query, { WalletId })
+    if not exists then return WalletId end
+    return Cobalt.Player.CreateWalletId()
+end
+
+---@param source integer
+local function restoreSession(source)
+    local citizenid <const> = Player(source).state['cobalt:citizenid']
+
+    if not citizenid or Cobalt.Players[source] then return end
+
+    local PlayerData <const> = fetchPlayer('citizenid', citizenid)
+
+    if PlayerData and PlayerData.license == Cobalt.Functions.GetIdentifier(source, 'license') then
+        local ok <const>, loaded <const> = pcall(Cobalt.Player.Login, source, citizenid)
+
+        if ok and loaded then return end
+    end
+
+    ClearPlayerStateBags(source)
+    lib.print.error(('could not restore %s for player %d after a restart'):format(citizenid, source))
+end
+
+MySQL.ready(function()
+    while GlobalState['cobalt:migrated:cobalt_core'] ~= true do Wait(50) end
+
+    for _, playerId in ipairs(GetPlayers()) do
+        restoreSession(tonumber(playerId) --[[@as integer]])
+    end
+end)
