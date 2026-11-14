@@ -153,6 +153,7 @@
 ---@field brand string
 ---@field price integer
 ---@field category string vehicle class name, such as 'compacts' or 'super'
+---@field class? integer GTA vehicle class number of `category`, 0 to 22; nil for a category GTA has no class for
 ---@field type string vehicle type, such as 'automobile' or 'boat'
 ---@field hash integer
 ---@field shops? string[] dealerships that sell it; without it, every dealership selling its category does
