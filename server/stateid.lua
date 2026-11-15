@@ -74,6 +74,7 @@ AddEventHandler('playerJoining', function()
 end)
 
 return {
+    find = find,
     claim = claim,
     publishOnline = publishOnline,
 }

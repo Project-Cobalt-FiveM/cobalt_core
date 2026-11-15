@@ -1,4 +1,5 @@
 local config <const> = require 'config.server'
+local stateIds <const> = require 'server.stateid'
 
 local function SetMethod(methodName, handler)
     if type(methodName) ~= 'string' then
@@ -240,6 +241,133 @@ local function Unban(term, expiresBefore)
 end
 
 Cobalt.Functions.Unban = Unban
+
+local ACCOUNT_CHARACTERS <const> = [[
+    SELECT citizenid, cid, name, fullname, phone_number, money, charinfo, position, metadata,
+        UNIX_TIMESTAMP(last_updated) AS lastPlayed
+    FROM players WHERE license = ? ORDER BY cid LIMIT 50
+]]
+local ACCOUNT_BANS <const> = [[
+    SELECT id, reason, bannedby, expire, UNIX_TIMESTAMP(created_at) AS createdAt
+    FROM bans WHERE license = ? ORDER BY id DESC LIMIT 100
+]]
+
+---@param license string
+---@return integer?
+local function connectedSource(license)
+    for _, id in ipairs(GetPlayers()) do
+        if Cobalt.Functions.GetIdentifier(id, 'license') == license then return tonumber(id) end
+    end
+end
+
+---@param row table
+---@return CoreAccountCharacter
+local function storedCharacter(row)
+    local metadata <const> = json.decode(row.metadata)
+
+    return {
+        citizenid = row.citizenid,
+        cid = row.cid,
+        name = row.fullname ~= '' and row.fullname or nil,
+        charinfo = row.charinfo and json.decode(row.charinfo) or {},
+        phone_number = row.phone_number,
+        job = metadata.job,
+        gang = metadata.gang,
+        money = json.decode(row.money),
+        metadata = metadata,
+        position = row.position and json.decode(row.position),
+        lastPlayed = row.lastPlayed,
+        online = false,
+    }
+end
+
+---@param player CorePlayer
+---@param now integer
+---@return CoreAccountCharacter
+local function playingCharacter(player, now)
+    local data <const> = player.PlayerData
+
+    return {
+        citizenid = data.citizenid,
+        cid = data.cid,
+        name = player.Functions.GetName(),
+        charinfo = data.charinfo,
+        phone_number = data.phone_number,
+        job = data.job,
+        gang = data.gang,
+        money = data.money,
+        metadata = data.metadata,
+        position = player.lastPosition or data.position,
+        lastPlayed = now,
+        online = true,
+    }
+end
+
+---@param row table
+---@param now integer
+---@return CoreAccountBan
+local function accountBan(row, now)
+    local expire <const> = row.expire or PERMANENT_BAN
+
+    return {
+        id = row.id,
+        reason = row.reason,
+        by = row.bannedby,
+        expires = expire < PERMANENT_BAN and expire or nil,
+        active = expire > now,
+        createdAt = row.createdAt,
+    }
+end
+
+---@param license string
+---@return CoreAccount?
+local function GetAccount(license)
+    if type(license) ~= 'string' or license == '' then return nil end
+
+    local playing <const> = Cobalt.PlayersByLicense[license]
+    local source <const> = playing and playing.PlayerData.source or connectedSource(license)
+    local rows <const> = MySQL.query.await(ACCOUNT_CHARACTERS, { license })
+    local banRows <const> = MySQL.query.await(ACCOUNT_BANS, { license })
+    local stateId <const> = stateIds.find(license)
+
+    if not source and not stateId and #rows == 0 and #banRows == 0 then return nil end
+
+    local now <const> = os.time()
+    local playingCid <const> = playing?.PlayerData.citizenid
+    local characters <const> = table.create(#rows + 1, 0)
+    local name, newest = nil, -1
+    local playingListed = false
+
+    for i = 1, #rows do
+        local row <const> = rows[i]
+
+        if row.lastPlayed > newest then name, newest = row.name, row.lastPlayed end
+
+        if row.citizenid == playingCid then
+            characters[i] = playingCharacter(playing, now)
+            playingListed = true
+        else
+            characters[i] = storedCharacter(row)
+        end
+    end
+
+    if playing and not playingListed then characters[#characters + 1] = playingCharacter(playing, now) end
+
+    local bans <const> = table.create(#banRows, 0)
+
+    for i = 1, #banRows do bans[i] = accountBan(banRows[i], now) end
+
+    return {
+        license = license,
+        name = source and GetPlayerName(source) or name,
+        stateid = stateId,
+        online = source and { source = source, citizenid = playingCid } or nil,
+        characters = characters,
+        bans = bans,
+    }
+end
+
+Cobalt.Functions.GetAccount = GetAccount
 
 local function ExploitBan(playerId, origin)
     Ban(playerId, { reason = origin, bannedBy = 'Anti Cheat' })

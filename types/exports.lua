@@ -389,6 +389,45 @@ function CobaltCoreExports:SetMetaData(citizenid, key, value) end
 ---@return CorePlayer?
 function CobaltCoreExports:GetPlayerByLicense(license, onlineOnly) end
 
+---@class CoreAccountOnline
+---@field source integer the connected player's server id
+---@field citizenid? string the character being played, nil while the player is still choosing one
+
+---@class CoreAccountCharacter
+---@field citizenid string
+---@field cid integer the character's slot on the license
+---@field name? string first and last name, nil when the character has neither
+---@field charinfo CharInfo
+---@field phone_number? string the number npwd stored in `players.phone_number`, nil until npwd gives the character one
+---@field job? Job cobalt_management's job, nil when it never set one
+---@field gang? Gang cobalt_management's gang, nil when it never set one
+---@field money table<MoneyType, integer> the wallets in `players.money`; the bank balance is cobalt_banking's
+---@field metadata PlayerMetadata every metadata key, licences, needs and status included
+---@field position? vector3|vector4|{ x: number, y: number, z: number, w?: number } where the character was last saved
+---@field lastPlayed integer unix time the row last changed, or the time of the call for the character being played
+---@field online boolean whether this is the character being played, read from memory instead of `players`
+
+---@class CoreAccountBan
+---@field id integer the `bans` id, which `Unban` takes
+---@field reason? string
+---@field by string who banned the license
+---@field expires? integer unix time the ban ends, nil when permanent
+---@field active boolean false once it has expired; the connect check deletes expired bans of a player who joins
+---@field createdAt integer unix time of the ban
+
+---@class CoreAccount
+---@field license string
+---@field name? string the connected player's name, or else the name saved with the most recently changed character
+---@field stateid? integer the permanent number from `state_ids`, nil when the license has never connected
+---@field online? CoreAccountOnline nil when the license isn't connected
+---@field characters CoreAccountCharacter[] every character on the license, by slot
+---@field bans CoreAccountBan[] bans on the license, newest first, active and expired
+
+---**Server.** Everything cobalt_core holds on a Rockstar license: its state ID, the connected player, every character and every ban. The character being played comes from memory, the rest from `players` in one query. Nil when the license has no character, ban or state ID and isn't connected.
+---@param license string
+---@return CoreAccount?
+function CobaltCoreExports:GetAccount(license) end
+
 ---**Server.** Returns the character whose npwd number in `players.phone_number` is `number`, online from memory or else loaded and cached for a minute. A player loaded from the database has `Offline = true` and no `PlayerData.source`.
 ---@param number string
 ---@param onlineOnly? boolean look at online players only, never the database

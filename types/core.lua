@@ -770,6 +770,11 @@ function Functions.GetPlayerByCitizenId(citizenid, onlineOnly) end
 ---@return CorePlayer?
 function Functions.GetPlayerByLicense(license, onlineOnly) end
 
+---**Server.** Everything cobalt_core holds on a Rockstar license: its state ID, the connected player, every character and every ban. The character being played comes from memory, the rest from `players` in one query. Nil when the license has no character, ban or state ID and isn't connected.
+---@param license string
+---@return CoreAccount?
+function Functions.GetAccount(license) end
+
 ---**Server.** Returns the character whose npwd number in `players.phone_number` is `number`, online from memory or else loaded and cached for a minute. A player loaded from the database has `Offline = true` and no `PlayerData.source`.
 ---@param number string
 ---@param onlineOnly? boolean look at online players only, never the database
