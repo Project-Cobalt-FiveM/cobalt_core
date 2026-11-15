@@ -16,6 +16,8 @@
     "success": {
         "server_opened": "The server has been opened",
         "server_closed": "The server has been closed",
+        "whitelist_on": "Whitelist on: only whitelisted players can join",
+        "whitelist_off": "Whitelist off: anyone can join",
         "copied": "%{text} copied"
     },
     "info": {
@@ -93,11 +95,12 @@
         },
         "openserver": { "help": "Open the server for everyone (admin only)" },
         "closeserver": {
-            "help": "Close the server for people without permissions (admin only)",
+            "help": "Close the server for maintenance: kicks everyone below admin (admin only)",
             "params": {
                 "reason": { "name": "reason", "help": "Reason for closing (optional)" }
             }
         },
+        "whitelist": { "help": "Turn whitelist mode on or off (admin only)" },
         "dv": { "help": "Delete your vehicle or the ones beside you (admin only)" },
         "dvall": { "help": "Delete all vehicles (admin only)" },
         "dvp": { "help": "Delete all peds (admin only)" },

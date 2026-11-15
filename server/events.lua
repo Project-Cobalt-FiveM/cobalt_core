@@ -62,7 +62,7 @@ local function onPlayerConnecting(name, _, deferrals)
     local src <const> = source
     deferrals.defer()
 
-    if config.closed and not IsPlayerAceAllowed(src, 'admin') then
+    if config.closed and not Cobalt.Functions.HasPermission(src, 'admin') then
         return deferrals.done(config.closedReason)
     end
 
@@ -117,7 +117,7 @@ RegisterNetEvent('cobalt_core:Server:CloseServer', function(reason)
         config.closed = true
         config.closedReason = reason
         for k in pairs(Cobalt.Players) do
-            if not Cobalt.Functions.HasPermission(k, config.whitelistPermission) then
+            if not Cobalt.Functions.HasPermission(k, 'admin') then
                 Cobalt.Functions.Kick(k, reason, nil, nil)
             end
         end
@@ -147,7 +147,7 @@ local function decayNeeds(Player)
     TriggerClientEvent('hud:client:UpdateNeeds', Player.PlayerData.source, hunger, thirst)
 end
 
-SetInterval(function()
+local function decayAllNeeds()
     local sources <const> = {}
 
     for source in pairs(Cobalt.Players) do sources[#sources + 1] = source end
@@ -163,7 +163,11 @@ SetInterval(function()
             Wait(0)
         end
     end
-end, sharedConfig.status.decayMinutes * 60000)
+end
+
+if sharedConfig.status.hungerRate > 0 or sharedConfig.status.thirstRate > 0 then
+    SetInterval(decayAllNeeds, sharedConfig.status.decayMinutes * 60000)
+end
 
 local MIN_SAVE_SECONDS <const> = 10
 

@@ -133,7 +133,7 @@ Cobalt.Commands.Add('closeserver', Lang:t('command.closeserver.help'), { { name 
         config.closed = true
         config.closedReason = reason
         for k in pairs(Cobalt.Players) do
-            if not Cobalt.Functions.HasPermission(k, config.whitelistPermission) then
+            if not Cobalt.Functions.HasPermission(k, 'admin') then
                 Cobalt.Functions.Kick(k, reason, nil, nil)
             end
         end
@@ -141,6 +141,14 @@ Cobalt.Commands.Add('closeserver', Lang:t('command.closeserver.help'), { { name 
     else
         Cobalt.Functions.Kick(source, Lang:t('error.no_permission'), nil, nil)
     end
+end, 'admin')
+
+Cobalt.Commands.Add('whitelist', Lang:t('command.whitelist.help'), {}, false, function(source)
+    config.whitelist = not config.whitelist
+
+    local state <const> = config.whitelist and 'on' or 'off'
+
+    Cobalt.Functions.Notify(source, { description = Lang:t('success.whitelist_' .. state), type = 'success' })
 end, 'admin')
 
 Cobalt.Commands.Add('dv', Lang:t('command.dv.help'), {}, false, function(source)

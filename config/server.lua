@@ -1,10 +1,10 @@
 ---@type ServerConfig
 return {
     -- Joining
-    closed = false, -- block joins for everyone below admin
-    closedReason = 'Server Closed', -- message shown while the server is closed
-    whitelist = false, -- only players with whitelistPermission can join
-    whitelistPermission = 'admin', -- ACE permission that passes the whitelist
+    closed = false, -- maintenance mode: only admins and owners can join, and /closeserver kicks everyone else; /openserver ends it
+    closedReason = 'Server Closed', -- message shown to players turned away during maintenance
+    whitelist = false, -- whitelist mode: only players holding whitelistPermission can join; /whitelist toggles it until restart
+    whitelistPermission = 'whitelisted', -- ACE that passes the whitelist; staff ranks hold it in server.cfg, give it to a player with add_ace identifier.<type>:<id> whitelisted allow
     checkDuplicateLicense = true, -- block a second connection from the same Rockstar license
 
     -- New characters
@@ -14,7 +14,7 @@ return {
     callbackLimit = { perSecond = 10, floodSeconds = 3 }, -- callback calls per player per second; over it for floodSeconds in a row drops the player
 
     -- Staff and kick messages
-    discord = '', -- Discord invite shown in kick and ban messages
+    discord = 'discord.gg/projectcobalt', -- Discord invite shown in kick and ban messages
     permissions = { 'owner', 'admin', 'staff' }, -- ranks cobalt_core can grant and remove
 
     -- Logging to FiveMesh (the API key is the fivemesh_api_key convar in secrets.cfg)
