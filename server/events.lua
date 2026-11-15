@@ -12,8 +12,8 @@ end)
 
 AddEventHandler('playerDropped', function()
     local src <const> = source
-    if not Cobalt.Players[src] then return end
     local Player <const> = Cobalt.Players[src]
+    if not Player then return end
     TriggerEvent('cobalt_core:Server:PlayerDropped', Player)
 
     local ok <const>, err <const> = pcall(Player.Functions.Save)
@@ -24,14 +24,7 @@ AddEventHandler('playerDropped', function()
 
     Cobalt.Player_Buckets[PlayerData.license] = nil
     Cobalt.Players[src] = nil
-
-    if Cobalt.PlayersByCid[PlayerData.citizenid] == Player then
-        Cobalt.PlayersByCid[PlayerData.citizenid] = nil
-    end
-
-    if Cobalt.PlayersByLicense[PlayerData.license] == Player then
-        Cobalt.PlayersByLicense[PlayerData.license] = nil
-    end
+    Cobalt.Player.Unindex(Player)
 end)
 
 AddEventHandler("onResourceStop", function(resName)

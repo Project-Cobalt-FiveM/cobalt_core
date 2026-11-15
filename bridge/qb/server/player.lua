@@ -102,7 +102,20 @@ local function createSerialNumber()
     end, 'metadata.phonedata.SerialNumber')
 end
 
-local playerGetters <const> = { 'GetOfflinePlayer', 'GetPlayerByLicense', 'GetOfflinePlayerByLicense' }
+---@param license string
+---@return CorePlayer?
+local function playerByLicense(license)
+    return Cobalt.Functions.GetPlayerByLicense(license)
+end
+
+---@type table<string, fun(key: string): CorePlayer?>
+local playerGetters <const> = {
+    GetOfflinePlayer = function(citizenid)
+        return Cobalt.Functions.GetPlayerByCitizenId(citizenid)
+    end,
+    GetPlayerByLicense = playerByLicense,
+    GetOfflinePlayerByLicense = playerByLicense,
+}
 
 ---@return table api qb-core's QBCore.Player
 function qbPlayer.api()
@@ -112,8 +125,8 @@ function qbPlayer.api()
         api[name] = fn
     end
 
-    for _, name in ipairs(playerGetters) do
-        api[name] = qbPlayer.wrap(Cobalt.Player[name])
+    for name, get in pairs(playerGetters) do
+        api[name] = qbPlayer.wrap(get)
     end
 
     api.CreateSerialNumber = createSerialNumber

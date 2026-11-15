@@ -3,13 +3,26 @@ local qbPlayer <const> = require 'bridge.qb.server.player'
 local useable <const> = require 'bridge.qb.server.useable'
 local callbacks <const> = require 'bridge.qb.server.callbacks'
 
+---@type table<string, fun(...): CorePlayer?>
 local playerGetters <const> = {
-    'GetPlayer',
-    'GetPlayerByCitizenId',
-    'GetPlayerByLicense',
-    'GetPlayerByPhone',
-    'GetPlayerByCharInfo',
-    'GetOfflinePlayerByCitizenId',
+    GetPlayer = function(source)
+        return Cobalt.Functions.GetPlayer(source)
+    end,
+    GetPlayerByCitizenId = function(citizenid)
+        return Cobalt.Functions.GetPlayerByCitizenId(citizenid, true)
+    end,
+    GetPlayerByLicense = function(license)
+        return Cobalt.Functions.GetPlayerByLicense(license)
+    end,
+    GetPlayerByPhone = function(number)
+        return Cobalt.Functions.GetPlayerByPhone(number, true)
+    end,
+    GetPlayerByCharInfo = function(property, value)
+        return Cobalt.Functions.GetPlayerByCharInfo(property, value, true)
+    end,
+    GetOfflinePlayerByCitizenId = function(citizenid)
+        return Cobalt.Functions.GetPlayerByCitizenId(citizenid)
+    end,
 }
 
 ---@param account string
@@ -71,8 +84,8 @@ return function()
         functions[name] = fn
     end
 
-    for _, name in ipairs(playerGetters) do
-        functions[name] = qbPlayer.wrap(Cobalt.Functions[name])
+    for name, get in pairs(playerGetters) do
+        functions[name] = qbPlayer.wrap(get)
     end
 
     for name, fn in pairs(overrides) do

@@ -4,9 +4,8 @@ local TYPES <const> = require 'config.shared'.licenses
 ---@return table?
 local function playerOf(target)
     if type(target) == 'number' then return Cobalt.Players[math.tointeger(target)] end
-    if type(target) ~= 'string' or target == '' then return end
 
-    return Cobalt.Functions.GetPlayerByCitizenId(target) or Cobalt.Functions.GetOfflinePlayerByCitizenId(target)
+    return Cobalt.Functions.GetPlayerByCitizenId(target)
 end
 
 ---@param player table
@@ -87,9 +86,7 @@ local function setLicense(player, key, granted, issuer)
 
     if player.Offline then player.Functions.Save() end
 
-    local source <const> = not player.Offline and player.PlayerData.source or nil
-
-    TriggerEvent('cobalt_core:server:licenseChanged', player.PlayerData.citizenid, key, granted, source)
+    TriggerEvent('cobalt_core:server:licenseChanged', player.PlayerData.citizenid, key, granted, player.PlayerData.source)
 
     return true
 end

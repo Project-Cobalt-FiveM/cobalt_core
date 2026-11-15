@@ -82,14 +82,17 @@ function QbPlayerFunctions.GetItemByName(item) end
 ---@class QbPlayerModule : PlayerModule
 local QbPlayerModule = {}
 
+---The character with this citizenid, online or loaded from `players`.
 ---@param citizenid string
 ---@return QbPlayer?
 function QbPlayerModule.GetOfflinePlayer(citizenid) end
 
+---The character on this Rockstar license, online or else the license's character whose row changed last.
 ---@param license string
 ---@return QbPlayer?
 function QbPlayerModule.GetPlayerByLicense(license) end
 
+---The same lookup as `GetPlayerByLicense`.
 ---@param license string
 ---@return QbPlayer?
 function QbPlayerModule.GetOfflinePlayerByLicense(license) end
@@ -127,29 +130,29 @@ function QbFunctions.HasItem(source, items, amount) end
 ---@return QbPlayer?
 function QbFunctions.GetPlayer(source) end
 
----**Server.**
+---**Server.** The online player with this citizenid. Reads memory only, as qb-core does.
 ---@param citizenid string
 ---@return QbPlayer?
 function QbFunctions.GetPlayerByCitizenId(citizenid) end
 
----**Server.**
+---**Server.** The character with this citizenid, online or loaded from `players`, through cobalt_core's `GetPlayerByCitizenId`.
 ---@param citizenid string
 ---@return QbPlayer?
 function QbFunctions.GetOfflinePlayerByCitizenId(citizenid) end
 
----**Server.**
+---**Server.** The online player on this Rockstar license, or else the license's character whose row changed last, loaded from `players` as qb-core does.
 ---@param license string
 ---@return QbPlayer?
 function QbFunctions.GetPlayerByLicense(license) end
 
----**Server.** The online player whose character owns `number` in `players.phone_number`, the number npwd gives the phone.
+---**Server.** The online player whose npwd number in `players.phone_number` is `number`. Reads memory only.
 ---@param number string
 ---@return QbPlayer?
 function QbFunctions.GetPlayerByPhone(number) end
 
----**Server.**
+---**Server.** The first online player whose `charinfo[property]` equals `value`. Reads memory only.
 ---@param property string charinfo key
----@param value string
+---@param value string|number
 ---@return QbPlayer?
 function QbFunctions.GetPlayerByCharInfo(property, value) end
 
@@ -733,29 +736,29 @@ function CobaltQbExports:HasItem(source, items, amount) end
 ---@return QbPlayer?
 function CobaltQbExports:GetPlayer(source) end
 
----**Server.**
+---**Server.** The online player with this citizenid. Reads memory only, as qb-core does.
 ---@param citizenid string
 ---@return QbPlayer?
 function CobaltQbExports:GetPlayerByCitizenId(citizenid) end
 
----**Server.**
+---**Server.** The character with this citizenid, online or loaded from `players`, through cobalt_core's `GetPlayerByCitizenId`.
 ---@param citizenid string
 ---@return QbPlayer?
 function CobaltQbExports:GetOfflinePlayerByCitizenId(citizenid) end
 
----**Server.**
+---**Server.** The online player on this Rockstar license, or else the license's character whose row changed last, loaded from `players` as qb-core does.
 ---@param license string
 ---@return QbPlayer?
 function CobaltQbExports:GetPlayerByLicense(license) end
 
----**Server.** The online player whose character owns `number` in `players.phone_number`, the number npwd gives the phone.
+---**Server.** The online player whose npwd number in `players.phone_number` is `number`. Reads memory only.
 ---@param number string
 ---@return QbPlayer?
 function CobaltQbExports:GetPlayerByPhone(number) end
 
----**Server.**
+---**Server.** The first online player whose `charinfo[property]` equals `value`. Reads memory only.
 ---@param property string charinfo key
----@param value string
+---@param value string|number
 ---@return QbPlayer?
 function CobaltQbExports:GetPlayerByCharInfo(property, value) end
 

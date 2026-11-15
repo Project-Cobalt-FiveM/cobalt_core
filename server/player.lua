@@ -2,63 +2,102 @@ local defaults <const> = require 'server.defaults'
 local sharedConfig <const> = require 'config.shared'
 local stateIds <const> = require 'server.stateid'
 
-local _playersStore <const> = {}
+Cobalt.Players = {}
 Cobalt.PlayersByCid = {}
 Cobalt.PlayersByLicense = {}
+Cobalt.PlayersByPhone = {}
 Cobalt.Player = {}
 
 local OFFLINE_TTL <const> = 60
-local _offlineCache <const> = {}
 
-local function lookupOnline(prefix, value)
-    if prefix == 'license' then
-        return Cobalt.PlayersByLicense[value]
-    elseif prefix == 'citizenid' then
-        return Cobalt.PlayersByCid[value]
-    end
+---@class OfflineEntry
+---@field player CorePlayer
+---@field expires integer `os.time()` it goes stale at, 0 once evicted
+
+---@type table<string, OfflineEntry>
+local offlineByCid <const> = {}
+---@type table<string, OfflineEntry> the license's most recently updated character
+local offlineByLicense <const> = {}
+---@type table<string, OfflineEntry>
+local offlineByPhone <const> = {}
+
+---@param index table<string, OfflineEntry>
+---@param key string
+---@return CorePlayer?
+local function cachedOffline(index, key)
+    local entry <const> = index[key]
+
+    if entry and os.time() < entry.expires then return entry.player end
 end
 
-local function lookupOffline(prefix, value)
-    if prefix == 'license' then
-        return Cobalt.Player.GetOfflinePlayerByLicense and Cobalt.Player.GetOfflinePlayerByLicense(value)
-    elseif prefix == 'citizenid' then
-        return Cobalt.Player.GetOfflinePlayer and Cobalt.Player.GetOfflinePlayer(value)
-    end
+---@param player CorePlayer
+---@return OfflineEntry
+local function cacheOffline(player)
+    local data <const> = player.PlayerData
+    local entry <const> = { player = player, expires = os.time() + OFFLINE_TTL }
+
+    offlineByCid[data.citizenid] = entry
+
+    if data.phone_number then offlineByPhone[data.phone_number] = entry end
+
+    return entry
 end
 
-Cobalt.Players = setmetatable(_playersStore, {
-    __index = function(_, key)
-        if type(key) ~= 'string' then return nil end
-
-        local prefix, value = key:match('^(%w+):(.+)$')
-        if not prefix or not value then return nil end
-
-        local online <const> = lookupOnline(prefix, value)
-        if online then return online end
-
-        local cached <const> = _offlineCache[key]
-        local now <const> = os.time()
-        if cached and now < cached.expires then
-            return cached.player
-        end
-
-        local player <const> = lookupOffline(prefix, value)
-        _offlineCache[key] = player and { player = player, expires = now + OFFLINE_TTL } or nil
-        return player
-    end,
-})
+---@param index table<string, OfflineEntry>
+---@param now integer
+local function sweep(index, now)
+    for key, entry in pairs(index) do
+        if now >= entry.expires then index[key] = nil end
+    end
+end
 
 SetInterval(function()
     local now <const> = os.time()
 
-    for key, cached in pairs(_offlineCache) do
-        if now >= cached.expires then _offlineCache[key] = nil end
-    end
+    sweep(offlineByCid, now)
+    sweep(offlineByLicense, now)
+    sweep(offlineByPhone, now)
 end, OFFLINE_TTL * 1000)
 
+---Expires a character's cached copy under all its keys and forgets the license's most recent character.
+---@param citizenid? string
+---@param license? string
 local function evictOfflineCache(citizenid, license)
-    if citizenid then _offlineCache['citizenid:' .. citizenid] = nil end
-    if license then _offlineCache['license:' .. license] = nil end
+    local entry <const> = offlineByCid[citizenid]
+
+    if entry then entry.expires = 0 end
+    if license then offlineByLicense[license] = nil end
+end
+
+---@param index table<string, CorePlayer>
+---@param key? string
+---@param Player CorePlayer
+local function unindexKey(index, key, Player)
+    if index[key] == Player then index[key] = nil end
+end
+
+---Takes a character out of the citizenid, license and phone indexes and expires its cached offline copy.
+---@param Player CorePlayer
+function Cobalt.Player.Unindex(Player)
+    local data <const> = Player.PlayerData
+
+    unindexKey(Cobalt.PlayersByCid, data.citizenid, Player)
+    unindexKey(Cobalt.PlayersByLicense, data.license, Player)
+    unindexKey(Cobalt.PlayersByPhone, data.phone_number, Player)
+    evictOfflineCache(data.citizenid, data.license)
+end
+
+---Records the number npwd stored in `players.phone_number` for a loaded character, in memory and on its client.
+---@param citizenid string
+---@param number string
+function Cobalt.Player.SetPhoneNumber(citizenid, number)
+    local Player <const> = Cobalt.PlayersByCid[citizenid]
+
+    if not Player or Player.PlayerData.phone_number == number then return end
+
+    unindexKey(Cobalt.PlayersByPhone, Player.PlayerData.phone_number, Player)
+    Cobalt.PlayersByPhone[number] = Player
+    Player.Functions.SetPlayerData('phone_number', number)
 end
 
 local function SyncIdentityStateBags(source, playerData)
@@ -86,7 +125,21 @@ end
 
 local jsonColumns <const> = { 'money', 'charinfo', 'position', 'metadata' }
 
-local PLAYER_COLUMNS <const> = ('citizenid, cid, license, name, %s'):format(table.concat(jsonColumns, ', '))
+local SELECT_PLAYER <const> = [[
+    SELECT p.citizenid, p.cid, p.license, p.name, p.phone_number, p.money, p.charinfo, p.position, p.metadata,
+        s.state_id
+    FROM players p LEFT JOIN state_ids s ON s.license = p.license
+]]
+
+---@alias PlayerKey 'citizenid' | 'license' | 'phone' | 'charinfo'
+
+---@type table<PlayerKey, string>
+local PLAYER_BY <const> = {
+    citizenid = SELECT_PLAYER .. 'WHERE p.citizenid = ? LIMIT 1',
+    license = SELECT_PLAYER .. 'WHERE p.license = ? ORDER BY p.last_updated DESC LIMIT 1',
+    phone = SELECT_PLAYER .. 'WHERE p.phone_number = ? LIMIT 1',
+    charinfo = SELECT_PLAYER .. 'WHERE JSON_UNQUOTE(JSON_EXTRACT(p.charinfo, ?)) = ? LIMIT 1',
+}
 
 ---@param row table?
 ---@return table?
@@ -98,6 +151,8 @@ local function decodePlayerRow(row)
         cid = row.cid,
         license = row.license,
         name = row.name,
+        phone_number = row.phone_number,
+        stateid = row.state_id,
     }
 
     for i = 1, #jsonColumns do
@@ -108,13 +163,10 @@ local function decodePlayerRow(row)
     return playerData
 end
 
----@param column 'citizenid' | 'license'
----@param value string
+---@param citizenid string
 ---@return table?
-local function fetchPlayer(column, value)
-    local query <const> = ('SELECT %s FROM players WHERE %s = ? LIMIT 1'):format(PLAYER_COLUMNS, column)
-
-    return decodePlayerRow(MySQL.single.await(query, { value }))
+local function fetchPlayer(citizenid)
+    return decodePlayerRow(MySQL.single.await(PLAYER_BY.citizenid, { citizenid }))
 end
 
 local SAVE_PLAYERS <const> = [[
@@ -183,7 +235,7 @@ local function loadCharacter(source, citizenid, newData)
     end
 
     local license <const> = Cobalt.Functions.GetIdentifier(source, 'license')
-    local PlayerData <const> = fetchPlayer('citizenid', citizenid)
+    local PlayerData <const> = fetchPlayer(citizenid)
 
     if not PlayerData or license ~= PlayerData.license then
         DropPlayer(source, Lang:t('info.exploit_dropped'))
@@ -220,36 +272,102 @@ function Cobalt.Player.Login(source, citizenid, newData)
     return loaded
 end
 
-function Cobalt.Player.GetOfflinePlayer(citizenid)
-    if citizenid then
-        local PlayerData <const> = fetchPlayer('citizenid', citizenid)
-        if PlayerData then
-            return Cobalt.Player.CheckPlayerData(nil, PlayerData)
-        end
+---@param key string
+---@return string path
+local function jsonPath(key)
+    if type(key) ~= 'string' or not key:match('^[%a_][%w_]*$') then
+        error(('%s is not a valid key'):format(key), 3)
     end
-    return nil
+
+    return '$.' .. key
 end
 
-function Cobalt.Player.GetPlayerByLicense(license)
-    if license then
-        local source <const> = Cobalt.Functions.GetSource(license)
-        if source > 0 then
-            return Cobalt.Players[source]
-        else
-            return Cobalt.Player.GetOfflinePlayerByLicense(license)
-        end
+---Runs one keyed query. If the character logged in while the query ran, it returns the online player. If another
+---lookup cached the character meanwhile, it returns that copy, so each character has one offline player at a time.
+---@param key PlayerKey
+---@param ... string|number
+---@return CorePlayer?
+local function loadPlayer(key, ...)
+    local row <const> = MySQL.single.await(PLAYER_BY[key], { ... })
+
+    if not row then return nil end
+
+    local online <const> = Cobalt.PlayersByCid[row.citizenid]
+
+    if online then return online end
+
+    local entry = offlineByCid[row.citizenid]
+
+    if not entry or os.time() >= entry.expires then
+        entry = cacheOffline(Cobalt.Player.CheckPlayerData(nil, decodePlayerRow(row)) --[[@as CorePlayer]])
     end
-    return nil
+
+    if key == 'license' then offlineByLicense[row.license] = entry end
+
+    return entry.player
 end
 
-function Cobalt.Player.GetOfflinePlayerByLicense(license)
-    if license then
-        local PlayerData <const> = fetchPlayer('license', license)
-        if PlayerData then
-            return Cobalt.Player.CheckPlayerData(nil, PlayerData)
-        end
+---@param online table<string, CorePlayer>
+---@param offline table<string, OfflineEntry>
+---@param key PlayerKey
+---@param value string
+---@param onlineOnly? boolean
+---@return CorePlayer?
+local function findPlayer(online, offline, key, value, onlineOnly)
+    local player <const> = online[value]
+
+    if player or onlineOnly then return player end
+    if type(value) ~= 'string' or value == '' then return nil end
+
+    return cachedOffline(offline, value) or loadPlayer(key, value)
+end
+
+---Returns the character with this citizenid, online from memory or else loaded from `players` and cached for a
+---minute. A player loaded from the database has `Offline = true` and no `PlayerData.source`.
+---@param citizenid string
+---@param onlineOnly? boolean look at online players only, never the database
+---@return CorePlayer?
+function Cobalt.Functions.GetPlayerByCitizenId(citizenid, onlineOnly)
+    return findPlayer(Cobalt.PlayersByCid, offlineByCid, 'citizenid', citizenid, onlineOnly)
+end
+
+---Returns the character on this Rockstar license, online from memory or else the license's character whose row
+---changed last (`players.last_updated`, normally the last one played), loaded and cached for a minute. A player
+---loaded from the database has `Offline = true` and no `PlayerData.source`.
+---@param license string
+---@param onlineOnly? boolean look at online players only, never the database
+---@return CorePlayer?
+function Cobalt.Functions.GetPlayerByLicense(license, onlineOnly)
+    return findPlayer(Cobalt.PlayersByLicense, offlineByLicense, 'license', license, onlineOnly)
+end
+
+---Returns the character whose npwd number in `players.phone_number` is `number`, online from memory or else loaded
+---and cached for a minute. A player loaded from the database has `Offline = true` and no `PlayerData.source`.
+---@param number string
+---@param onlineOnly? boolean look at online players only, never the database
+---@return CorePlayer?
+function Cobalt.Functions.GetPlayerByPhone(number, onlineOnly)
+    return findPlayer(Cobalt.PlayersByPhone, offlineByPhone, 'phone', number, onlineOnly)
+end
+
+---Returns the first online character whose `charinfo[property]` equals `value`, or else the first matching row,
+---cached for a minute. Charinfo values such as names repeat, so the database match is whichever row MariaDB reads
+---first. A player loaded from the database has `Offline = true` and no `PlayerData.source`. Errors when the lookup
+---reaches the database and `property` isn't an identifier.
+---@param property string charinfo key: letters, digits and underscores, not starting with a digit
+---@param value string|number
+---@param onlineOnly? boolean look at online players only, never the database
+---@return CorePlayer?
+function Cobalt.Functions.GetPlayerByCharInfo(property, value, onlineOnly)
+    if value == nil then return nil end
+
+    for _, Player in pairs(Cobalt.Players) do
+        if Player.PlayerData.charinfo[property] == value then return Player end
     end
-    return nil
+
+    if onlineOnly then return nil end
+
+    return loadPlayer('charinfo', jsonPath(property), value)
 end
 
 ---@type table<string, true>
@@ -276,15 +394,10 @@ function Cobalt.Player.CheckPlayerData(source, PlayerData)
         PlayerData.source = source
         PlayerData.license = PlayerData.license or Cobalt.Functions.GetIdentifier(source, 'license')
         PlayerData.name = GetPlayerName(source)
+        PlayerData.stateid = stateIds.claim(PlayerData.license)
     end
 
     applyDefaults(PlayerData, defaults)
-
-    if Offline then
-        PlayerData.stateid = stateIds.find(PlayerData.license)
-    else
-        PlayerData.stateid = stateIds.claim(PlayerData.license)
-    end
 
     for moneytype, amount in pairs(sharedConfig.money.starting) do
         if moneytype ~= 'bank' and PlayerData.money[moneytype] == nil then
@@ -312,14 +425,7 @@ function Cobalt.Player.Logout(source)
     local Player <const> = Cobalt.Players[source]
     if Player?.PlayerData then
         pcall(function() Player.Functions.Save() end)
-
-        if Player.PlayerData.citizenid then
-            Cobalt.PlayersByCid[Player.PlayerData.citizenid] = nil
-        end
-        if Player.PlayerData.license then
-            Cobalt.PlayersByLicense[Player.PlayerData.license] = nil
-        end
-        evictOfflineCache(Player.PlayerData.citizenid, Player.PlayerData.license)
+        Cobalt.Player.Unindex(Player)
     end
     Cobalt.Players[source] = nil
 end
@@ -378,7 +484,7 @@ end
 ---@return string?
 function Cobalt.Functions.GetName(target)
     local online <const> = type(target) == 'number'
-        and _playersStore[math.tointeger(target)]
+        and Cobalt.Players[math.tointeger(target)]
         or Cobalt.PlayersByCid[target]
 
     if online then return formatName(online.PlayerData.charinfo) end
@@ -393,21 +499,11 @@ end
 local READ_METADATA <const> = 'SELECT citizenid, JSON_EXTRACT(metadata, ?) AS value FROM players WHERE citizenid IN (?)'
 local WRITE_METADATA <const> = "UPDATE players SET metadata = JSON_SET(metadata, ?, JSON_EXTRACT(?, '$')) WHERE citizenid = ?"
 
----@param key string
----@return string path
-local function metadataPath(key)
-    if type(key) ~= 'string' or not key:match('^[%a_][%w_]*$') then
-        error(('%s is not a valid metadata key'):format(key), 3)
-    end
-
-    return '$.' .. key
-end
-
 ---@param citizenids string[]
 ---@param key string
 ---@return table<string, any> values
 function Cobalt.Functions.GetMetaData(citizenids, key)
-    local path <const> = metadataPath(key)
+    local path <const> = jsonPath(key)
     local values <const>, offline <const> = {}, {}
 
     for _, citizenid in ipairs(citizenids) do
@@ -434,7 +530,7 @@ end
 ---@param value any
 ---@return boolean written
 function Cobalt.Functions.SetMetaData(citizenid, key, value)
-    local path <const> = metadataPath(key)
+    local path <const> = jsonPath(key)
 
     if type(citizenid) ~= 'string' then return false end
 
@@ -802,11 +898,10 @@ function Cobalt.Player.CreatePlayer(PlayerData, Offline)
         return self
     else
         Cobalt.Players[self.PlayerData.source] = self
-        if self.PlayerData.citizenid then
-            Cobalt.PlayersByCid[self.PlayerData.citizenid] = self
-        end
-        if self.PlayerData.license then
-            Cobalt.PlayersByLicense[self.PlayerData.license] = self
+        Cobalt.PlayersByCid[self.PlayerData.citizenid] = self
+        Cobalt.PlayersByLicense[self.PlayerData.license] = self
+        if self.PlayerData.phone_number then
+            Cobalt.PlayersByPhone[self.PlayerData.phone_number] = self
         end
         evictOfflineCache(self.PlayerData.citizenid, self.PlayerData.license)
 
@@ -966,11 +1061,12 @@ function Cobalt.Player.SaveAll(dispatchOnly)
 end
 
 function Cobalt.Player.SaveOffline(PlayerData)
-    if PlayerData then
-        savePlayer(PlayerData, PlayerData.position)
-    else
-        lib.print.error('offline save called without player data')
+    if not PlayerData then
+        return lib.print.error('offline save called without player data')
     end
+
+    savePlayer(PlayerData, PlayerData.position)
+    evictOfflineCache(PlayerData.citizenid, PlayerData.license)
 end
 
 local DELETE_CHARACTER <const> = {
@@ -988,11 +1084,7 @@ local function detachCharacter(citizenid)
     if not Player then return end
 
     Player.deleted = true
-    Cobalt.PlayersByCid[citizenid] = nil
-
-    if Cobalt.PlayersByLicense[Player.PlayerData.license] == Player then
-        Cobalt.PlayersByLicense[Player.PlayerData.license] = nil
-    end
+    Cobalt.Player.Unindex(Player)
 
     return Player
 end
@@ -1091,7 +1183,7 @@ local function restoreSession(source)
 
     if not citizenid or Cobalt.Players[source] then return end
 
-    local PlayerData <const> = fetchPlayer('citizenid', citizenid)
+    local PlayerData <const> = fetchPlayer(citizenid)
 
     if PlayerData and PlayerData.license == Cobalt.Functions.GetIdentifier(source, 'license') then
         local ok <const>, loaded <const> = pcall(Cobalt.Player.Login, source, citizenid)

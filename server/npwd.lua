@@ -37,9 +37,18 @@ local function registerWithNpwd(Player)
     exports.npwd:newPlayer({
         source = data.source,
         identifier = data.citizenid,
+        phoneNumber = data.phone_number,
         firstname = charinfo.firstname or '',
         lastname = charinfo.lastname or '',
     })
+
+    if data.phone_number then return end
+
+    local assigned <const> = exports.npwd:getPlayerData({ source = data.source })
+
+    if assigned?.phoneNumber then
+        Cobalt.Player.SetPhoneNumber(data.citizenid, assigned.phoneNumber)
+    end
 end
 
 AddEventHandler('cobalt_core:Server:PlayerLoaded', function(Player)

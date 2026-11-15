@@ -364,15 +364,11 @@ function CobaltCoreExports:GetSource(identifier) end
 ---@return CorePlayer?
 function CobaltCoreExports:GetPlayer(source) end
 
----**Server.** The online player with that citizenid.
+---**Server.** Returns the character with this citizenid, online from memory or else loaded from `players` and cached for a minute. A player loaded from the database has `Offline = true` and no `PlayerData.source`. Pass `onlineOnly` when you need a loaded character, for example to message it by source. The lookup then never queries the database.
 ---@param citizenid string
+---@param onlineOnly? boolean look at online players only, never the database
 ---@return CorePlayer?
-function CobaltCoreExports:GetPlayerByCitizenId(citizenid) end
-
----**Server.** Loads the character from the database when it is not online.
----@param citizenid string
----@return CorePlayer?
-function CobaltCoreExports:GetOfflinePlayerByCitizenId(citizenid) end
+function CobaltCoreExports:GetPlayerByCitizenId(citizenid, onlineOnly) end
 
 ---**Server.** One metadata key for each character, online ones from memory and the rest from `players` in one query. Characters that don't exist or lack the key are left out. Errors when `key` isn't an identifier.
 ---@param citizenids string[]
@@ -387,21 +383,24 @@ function CobaltCoreExports:GetMetaData(citizenids, key) end
 ---@return boolean written
 function CobaltCoreExports:SetMetaData(citizenid, key, value) end
 
----**Server.** The online player with that Rockstar license.
+---**Server.** Returns the character on this Rockstar license, online from memory or else the license's character whose row changed last (`players.last_updated`, normally the last one played), loaded and cached for a minute. A player loaded from the database has `Offline = true` and no `PlayerData.source`.
 ---@param license string
+---@param onlineOnly? boolean look at online players only, never the database
 ---@return CorePlayer?
-function CobaltCoreExports:GetPlayerByLicense(license) end
+function CobaltCoreExports:GetPlayerByLicense(license, onlineOnly) end
 
----**Server.** The online player whose character owns `number` in `players.phone_number`, the number npwd gives the phone.
+---**Server.** Returns the character whose npwd number in `players.phone_number` is `number`, online from memory or else loaded and cached for a minute. A player loaded from the database has `Offline = true` and no `PlayerData.source`.
 ---@param number string
+---@param onlineOnly? boolean look at online players only, never the database
 ---@return CorePlayer?
-function CobaltCoreExports:GetPlayerByPhone(number) end
+function CobaltCoreExports:GetPlayerByPhone(number, onlineOnly) end
 
----**Server.** The online player whose `charinfo` field matches, such as `firstname`.
----@param property string charinfo key
----@param value string
+---**Server.** Returns the first online character whose `charinfo[property]` equals `value`, such as `firstname`, or else the first matching row, cached for a minute. Charinfo values such as names repeat, so the database match is whichever row MariaDB reads first. A player loaded from the database has `Offline = true` and no `PlayerData.source`. Errors when the lookup reaches the database and `property` isn't an identifier.
+---@param property string charinfo key: letters, digits and underscores, not starting with a digit
+---@param value string|number
+---@param onlineOnly? boolean look at online players only, never the database
 ---@return CorePlayer?
-function CobaltCoreExports:GetPlayerByCharInfo(property, value) end
+function CobaltCoreExports:GetPlayerByCharInfo(property, value, onlineOnly) end
 
 ---**Server.** Online players whose cobalt_management job (`PlayerData.job`) has this name or type, and their count.
 ---@param job string job name or type

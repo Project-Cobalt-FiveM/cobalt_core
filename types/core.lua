@@ -110,9 +110,10 @@
 ---@field [string] any
 
 ---@class PlayerData
----@field source integer
+---@field source? integer nil on a character loaded from the database
 ---@field citizenid string
 ---@field license string
+---@field phone_number? string the number npwd stored in `players.phone_number`, nil until npwd gives the character one
 ---@field stateid integer the player's permanent number across all their characters, issued in join order; also on the player's replicated `cobalt:stateid` state bag
 ---@field name string
 ---@field cid integer
@@ -443,17 +444,14 @@ function PlayerModule.Login(source, citizenid, newData) end
 ---@param source integer
 function PlayerModule.Logout(source) end
 
+---Takes a character out of the citizenid, license and phone indexes and expires its cached offline copy.
+---@param Player CorePlayer
+function PlayerModule.Unindex(Player) end
+
+---Records the number npwd stored in `players.phone_number` for a loaded character, in memory and on its client.
 ---@param citizenid string
----@return CorePlayer?
-function PlayerModule.GetOfflinePlayer(citizenid) end
-
----@param license string
----@return CorePlayer?
-function PlayerModule.GetPlayerByLicense(license) end
-
----@param license string
----@return CorePlayer?
-function PlayerModule.GetOfflinePlayerByLicense(license) end
+---@param number string
+function PlayerModule.SetPhoneNumber(citizenid, number) end
 
 ---@param source? integer nil for an offline character
 ---@param PlayerData? table
@@ -523,6 +521,7 @@ function PlayerModule.CreateWalletId() end
 ---@field Players table<integer, CorePlayer>
 ---@field PlayersByCid table<string, CorePlayer>
 ---@field PlayersByLicense table<string, CorePlayer>
+---@field PlayersByPhone table<string, CorePlayer> online characters by `PlayerData.phone_number`
 ---@field Player PlayerModule
 ---@field Commands Commands
 ---@field Player_Buckets table<integer, { id: integer, bucket: integer }>
@@ -759,31 +758,30 @@ function Functions.GetSource(identifier) end
 ---@return CorePlayer?
 function Functions.GetPlayer(source) end
 
----**Server.**
+---**Server.** Returns the character with this citizenid, online from memory or else loaded from `players` and cached for a minute. A player loaded from the database has `Offline = true` and no `PlayerData.source`.
 ---@param citizenid string
+---@param onlineOnly? boolean look at online players only, never the database
 ---@return CorePlayer?
-function Functions.GetPlayerByCitizenId(citizenid) end
+function Functions.GetPlayerByCitizenId(citizenid, onlineOnly) end
 
----**Server.** Loads the character from the database when it is not online.
----@param citizenid string
----@return CorePlayer?
-function Functions.GetOfflinePlayerByCitizenId(citizenid) end
-
----**Server.**
+---**Server.** Returns the character on this Rockstar license, online from memory or else the license's character whose row changed last (`players.last_updated`, normally the last one played), loaded and cached for a minute. A player loaded from the database has `Offline = true` and no `PlayerData.source`.
 ---@param license string
+---@param onlineOnly? boolean look at online players only, never the database
 ---@return CorePlayer?
-function Functions.GetPlayerByLicense(license) end
+function Functions.GetPlayerByLicense(license, onlineOnly) end
 
----**Server.** The online player whose character owns `number` in `players.phone_number`, the number npwd gives the phone.
+---**Server.** Returns the character whose npwd number in `players.phone_number` is `number`, online from memory or else loaded and cached for a minute. A player loaded from the database has `Offline = true` and no `PlayerData.source`.
 ---@param number string
+---@param onlineOnly? boolean look at online players only, never the database
 ---@return CorePlayer?
-function Functions.GetPlayerByPhone(number) end
+function Functions.GetPlayerByPhone(number, onlineOnly) end
 
----**Server.**
----@param property string charinfo key
----@param value string
+---**Server.** Returns the first online character whose `charinfo[property]` equals `value`, such as `firstname`, or else the first matching row, cached for a minute. Charinfo values such as names repeat, so the database match is whichever row MariaDB reads first. A player loaded from the database has `Offline = true` and no `PlayerData.source`. Errors when the lookup reaches the database and `property` isn't an identifier.
+---@param property string charinfo key: letters, digits and underscores, not starting with a digit
+---@param value string|number
+---@param onlineOnly? boolean look at online players only, never the database
 ---@return CorePlayer?
-function Functions.GetPlayerByCharInfo(property, value) end
+function Functions.GetPlayerByCharInfo(property, value, onlineOnly) end
 
 ---**Server.** Online players whose cobalt_management job (`PlayerData.job`) has this name or type, and their count.
 ---@param job string job name or type
