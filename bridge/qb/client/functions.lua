@@ -123,7 +123,7 @@ end
 ---@return integer prop
 function qb.AttachProp(ped, model, boneId, x, y, z, xR, yR, zR, vertex)
     local modelHash <const> = lib.requestModel(model)
-    local prop <const> = CreateObject(modelHash, 1.0, 1.0, 1.0, true, true, false)
+    local prop <const> = CreateObject(modelHash, 1.0, 1.0, 1.0, false, false, false)
 
     local bone <const> = GetPedBoneIndex(ped, boneId)
 
