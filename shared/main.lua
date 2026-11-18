@@ -53,6 +53,8 @@ end
 
 function CobaltShared.ChangeVehicleExtra(vehicle, extra, enable)
     if DoesExtraExist(vehicle, extra) then
+        SetVehicleAutoRepairDisabled(vehicle, true)
+
         if enable then
             SetVehicleExtra(vehicle, extra, false)
             if not IsVehicleExtraTurnedOn(vehicle, extra) then
@@ -76,6 +78,8 @@ function CobaltShared.IsFunction(value)
 end
 
 function CobaltShared.SetDefaultVehicleExtras(vehicle, config)
+    SetVehicleAutoRepairDisabled(vehicle, true)
+
     for i = 1, 20 do
         if DoesExtraExist(vehicle, i) then
             SetVehicleExtra(vehicle, i, 1)
